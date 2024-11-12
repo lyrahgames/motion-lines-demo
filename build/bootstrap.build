@@ -1,0 +1,7 @@
+project = motion-lines-demo
+
+using version
+using config
+using test
+using install
+using dist

@@ -1,0 +1,26 @@
+libs =
+
+# Custom
+#
+import libs += libensketch-xstd%lib{ensketch-xstd}
+
+# Logging
+#
+import libs += fmt%lib{fmt}
+
+# OpenGL
+#
+import libs += glbinding%lib{glbinding}
+import libs += glm%lib{glm}
+import libs += libsfml-graphics%lib{sfml-graphics}
+
+# Loader
+#
+import libs += assimp%lib{assimp}
+
+exe{motion-lines-demo}: {hxx ixx txx cxx}{**} $libs
+{
+  test = true
+}
+
+cxx.poptions =+ "-I$out_root" "-I$src_root"
