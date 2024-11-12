@@ -44,6 +44,7 @@ class viewer : public opengl_window {
       std::chrono::high_resolution_clock::now();
 
   opengl::shader_program shader{};
+  opengl::shader_program curve_shader{};
   struct device_storage {
     opengl::vertex_array va{};
     opengl::vertex_buffer vertices{};
@@ -52,6 +53,12 @@ class viewer : public opengl_window {
     opengl::shader_storage_buffer bone_weight_data{};
     opengl::shader_storage_buffer transforms{};
   } device{};
+
+  opengl::vertex_array curves_va{};
+  opengl::vertex_buffer curves_data{};
+
+  std::vector<glm::vec3> motion_lines_data{};
+  size_t samples = 0;
 
  public:
   viewer(int width = 500, int height = 500);
@@ -81,6 +88,9 @@ class viewer : public opengl_window {
   void print_scene_info();
 
   void create_shader();
+  void create_curve_shader();
+
+  void compute_motion_lines();
 };
 
 }  // namespace demo

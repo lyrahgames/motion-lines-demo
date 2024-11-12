@@ -33,6 +33,7 @@ viewer::viewer(int width, int height) : opengl_window{width, height} {
   glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
   create_shader();
+  create_curve_shader();
 }
 
 void viewer::create_shader() {
@@ -238,6 +239,176 @@ void main() {
   }
 }
 
+void viewer::create_curve_shader() {
+  const auto vs = opengl::vertex_shader{R"##(
+#version 460 core
+
+uniform mat4 projection;
+uniform mat4 view;
+
+layout (location = 0) in vec3 p;
+
+void main(){
+  gl_Position = projection * view * vec4(p, 1.0);
+}
+)##"};
+
+  const auto gs = opengl::geometry_shader{R"##(
+#version 420 core
+
+uniform float line_width;
+
+uniform float screen_width;
+uniform float screen_height;
+
+layout (lines) in;
+layout (triangle_strip, max_vertices = 12) out;
+
+noperspective out vec2 uv;
+
+void main(){
+  // float width = 10.0;
+  float width = line_width;
+
+  vec4 pos1 = gl_in[0].gl_Position / gl_in[0].gl_Position.w;
+  vec4 pos2 = gl_in[1].gl_Position / gl_in[1].gl_Position.w;
+
+  vec2 p = vec2(0.5 * screen_width * pos1.x, 0.5 * screen_height * pos1.y);
+  vec2 q = vec2(0.5 * screen_width * pos2.x, 0.5 * screen_height * pos2.y);
+
+  vec2 d = normalize(q - p);
+  vec2 n = vec2(-d.y, d.x);
+  float delta = 0.5 * width;
+
+  vec2 t = vec2(0);
+
+  t = p - delta * n;
+  uv = vec2(0.0, -1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos1.z, 1.0);
+  EmitVertex();
+  t = p + delta * n;
+  uv = vec2(0.0, 1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos1.z, 1.0);
+  EmitVertex();
+  t = p - delta * n - delta * d;
+  uv = vec2(-1.0, -1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos1.z, 1.0);
+  EmitVertex();
+  t = p + delta * n - delta * d;
+  uv = vec2(-1.0, 1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos1.z, 1.0);
+  EmitVertex();
+  EndPrimitive();
+
+  t = q - delta * n;
+  uv = vec2(0.0, -1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos2.z, 1.0);
+  EmitVertex();
+  t = q + delta * n;
+  uv = vec2(0.0, 1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos2.z, 1.0);
+  EmitVertex();
+  t = q - delta * n + delta * d;
+  uv = vec2(1.0, -1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos2.z, 1.0);
+  EmitVertex();
+  t = q + delta * n + delta * d;
+  uv = vec2(1.0, 1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos2.z, 1.0);
+  EmitVertex();
+  EndPrimitive();
+
+
+  t = p - delta * n;
+  uv = vec2(0.0, -1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos1.z, 1.0);
+  EmitVertex();
+  t = q - delta * n;
+  uv = vec2(0.0, -1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos2.z, 1.0);
+  EmitVertex();
+  t = p + delta * n;
+  uv = vec2(0.0, 1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos1.z, 1.0);
+  EmitVertex();
+  t = q + delta * n;
+  uv = vec2(0.0, 1.0);
+  gl_Position = vec4(2.0 * t.x / screen_width,
+                     2.0 * t.y / screen_height,
+                     pos2.z, 1.0);
+  EmitVertex();
+  EndPrimitive();
+}
+)##"};
+
+  const auto fs = opengl::fragment_shader{R"##(
+#version 460 core
+
+uniform vec4 line_color;
+
+noperspective in vec2 uv;
+
+layout (location = 0) out vec4 frag_color;
+
+void main() {
+  // frag_color = vec4(0.1, 0.5, 0.9, 1.0);
+  if (length(uv) >= 1.0) discard;
+  frag_color = line_color;
+}
+)##"};
+
+  if (!vs) {
+    log::error(vs.info_log());
+    quit();
+    return;
+  }
+
+  if (!gs) {
+    log::error(gs.info_log());
+    quit();
+    return;
+  }
+
+  if (!fs) {
+    log::error(fs.info_log());
+    quit();
+    return;
+  }
+
+  curve_shader.attach(vs);
+  curve_shader.attach(gs);
+  curve_shader.attach(fs);
+  curve_shader.link();
+
+  if (!curve_shader.linked()) {
+    log::error(curve_shader.info_log());
+    quit();
+    return;
+  }
+}
+
 void viewer::run() {
   while (not demo::done()) {
     sf::Event event;
@@ -304,6 +475,21 @@ void viewer::render() {
   device.va.bind();
   device.faces.bind();
   glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
+
+  // Curves
+  curve_shader.use();
+  curve_shader.try_set("projection", camera.projection_matrix());
+  curve_shader.try_set("view", camera.view_matrix());
+  curve_shader.try_set("viewport", camera.viewport_matrix());
+  curve_shader.set("line_width", 3.5f);
+  curve_shader.set("line_color", vec4{vec3{0.5f}, 0.8f});
+  curve_shader.set("screen_width", float(camera.screen_width()));
+  curve_shader.set("screen_height", float(camera.screen_height()));
+  //
+  curves_va.bind();
+  curves_data.bind();
+  for (size_t vid = 0; vid < mesh.vertices.size(); ++vid)
+    glDrawArrays(GL_LINE_STRIP, vid * samples, samples);
 }
 
 void viewer::update() {
@@ -522,6 +708,8 @@ void viewer::load_scene_from_file(const std::filesystem::path& path) {
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, device.transforms.id());
   //
   device.transforms.allocate_and_initialize(global_transforms(mesh));
+
+  compute_motion_lines();
 }
 
 void viewer::fit_view_to_surface() {
@@ -534,6 +722,39 @@ void viewer::fit_view_to_surface() {
   radius = bounding_radius / tan(0.5f * camera.vfov());
   camera.set_near_and_far(1e-5f * radius, 100 * radius);
   view_should_update = true;
+}
+
+void viewer::compute_motion_lines() {
+  if (mesh.animations.empty()) return;
+
+  constexpr float32 fps = 30.0f;
+  const auto duration = mesh.animations[0].duration / mesh.animations[0].ticks;
+  samples = static_cast<size_t>(std::floor(fps * duration));
+
+  motion_lines_data.clear();
+  motion_lines_data.resize(mesh.vertices.size() * samples);
+
+  for (size_t s = 0; s < samples; ++s) {
+    const auto time = s * duration / samples;
+    const auto transforms = animation_transforms(mesh, 0, time);
+
+    for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
+      glm::mat4 x(0.0f);
+      for (auto i = mesh.weights.offsets[vid];
+           i < mesh.weights.offsets[vid + 1]; ++i) {
+        const auto [k, weight] = mesh.weights.entries[i];
+        x += weight * transforms[k];
+      }
+      motion_lines_data[vid * samples + s] =
+          glm::vec3(x * glm::vec4(mesh.vertices[vid].position, 1.0f));
+    }
+  }
+
+  curves_va.bind();
+  curves_data.bind();
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+  curves_data.allocate_and_initialize(motion_lines_data);
 }
 
 }  // namespace demo
