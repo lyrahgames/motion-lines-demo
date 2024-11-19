@@ -42,6 +42,9 @@ class viewer : public opengl_window {
   float bounding_radius;
   std::chrono::time_point<std::chrono::high_resolution_clock> start =
       std::chrono::high_resolution_clock::now();
+  bool playing = false;
+  float time{};
+  int animation = 0;
 
   opengl::shader_program shader{};
   opengl::shader_program curve_shader{};
@@ -93,6 +96,8 @@ class viewer : public opengl_window {
   void create_curve_shader();
 
   void compute_motion_lines();
+
+  void select_animation(int id);
 };
 
 }  // namespace demo

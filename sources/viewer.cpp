@@ -466,6 +466,22 @@ void viewer::process(const sf::Event event) {
         case sf::Keyboard::Num2:
           set_z_as_up();
           break;
+
+        case sf::Keyboard::Space:
+          if (event.key.control) {
+            playing = true;
+            time = 0.0f;
+          } else
+            playing = !playing;
+          break;
+
+        case sf::Keyboard::Left:
+          select_animation(--animation);
+          break;
+
+        case sf::Keyboard::Right:
+          select_animation(++animation);
+          break;
       }
       break;
 
@@ -475,17 +491,71 @@ void viewer::process(const sf::Event event) {
   }
 }
 
+void viewer::update() {
+  // Get new mouse position and compute movement in space.
+  const auto new_mouse_pos = sf::Mouse::getPosition(window);
+  const auto mouse_move = new_mouse_pos - mouse_pos;
+  mouse_pos = new_mouse_pos;
+
+  if (window.hasFocus()) {
+    if (sf::Mouse::isButtonPressed(sf::Mouse::Left)) {
+      if (sf::Keyboard::isKeyPressed(sf::Keyboard::LShift))
+        shift({mouse_move.x, mouse_move.y});
+      else if (sf::Keyboard::isKeyPressed(sf::Keyboard::LControl))
+        zoom(0.01 * mouse_move.y);
+      else
+        turn({-0.01 * mouse_move.x, 0.01 * mouse_move.y});
+    } else if (sf::Mouse::isButtonPressed(sf::Mouse::Right)) {
+      playing = false;
+      const auto duration = mesh.animations[animation].duration /
+                            mesh.animations[animation].ticks;
+      auto delta = 0.01f * mouse_move.y;
+      if (sf::Keyboard::isKeyPressed(sf::Keyboard::LShift)) delta *= 0.1f;
+      time = std::fmod(duration + time + delta, duration);
+      device.transforms.allocate_and_initialize(
+          animation_transforms(mesh, animation, time));
+    }
+  }
+
+  if (view_should_update) {
+    update_view();
+    view_should_update = false;
+  }
+}
+
+void viewer::update_view() {
+  // Compute camera position by using spherical coordinates.
+  // This transformation is a variation of the standard
+  // called horizontal coordinates often used in astronomy.
+  //
+  auto p = cos(altitude) * sin(azimuth) * right +  //
+           cos(altitude) * cos(azimuth) * front +  //
+           sin(altitude) * up;
+  p *= radius;
+  p += origin;
+  camera.move(p).look_at(origin, up);
+
+  // camera.set_near_and_far(std::max(1e-3f * radius, radius -
+  // bounding_radius),
+  //                         radius + bounding_radius);
+}
+
 void viewer::render() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   if (not mesh.animations.empty()) {
     const auto current = std::chrono::high_resolution_clock::now();
     const auto duration =
-        mesh.animations[0].duration / mesh.animations[0].ticks;
-    const auto time = std::fmod(
-        std::chrono::duration<float64>(current - start).count(), duration);
-    device.transforms.allocate_and_initialize(
-        animation_transforms(mesh, 0, time));
+        mesh.animations[animation].duration / mesh.animations[animation].ticks;
+
+    if (playing) {
+      time = std::fmod(
+          time + std::chrono::duration<float64>(current - start).count(),
+          duration);
+      device.transforms.allocate_and_initialize(
+          animation_transforms(mesh, animation, time));
+    }
+    start = current;
 
     const size_t max_samples = 35;
     const auto sample_last =
@@ -518,44 +588,6 @@ void viewer::render() {
   device.va.bind();
   device.faces.bind();
   glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
-}
-
-void viewer::update() {
-  // Get new mouse position and compute movement in space.
-  const auto new_mouse_pos = sf::Mouse::getPosition(window);
-  const auto mouse_move = new_mouse_pos - mouse_pos;
-  mouse_pos = new_mouse_pos;
-
-  if (window.hasFocus()) {
-    if (sf::Mouse::isButtonPressed(sf::Mouse::Left)) {
-      if (sf::Keyboard::isKeyPressed(sf::Keyboard::LShift))
-        shift({mouse_move.x, mouse_move.y});
-      else
-        turn({-0.01 * mouse_move.x, 0.01 * mouse_move.y});
-    }
-  }
-
-  if (view_should_update) {
-    update_view();
-    view_should_update = false;
-  }
-}
-
-void viewer::update_view() {
-  // Compute camera position by using spherical coordinates.
-  // This transformation is a variation of the standard
-  // called horizontal coordinates often used in astronomy.
-  //
-  auto p = cos(altitude) * sin(azimuth) * right +  //
-           cos(altitude) * cos(azimuth) * front +  //
-           sin(altitude) * up;
-  p *= radius;
-  p += origin;
-  camera.move(p).look_at(origin, up);
-
-  // camera.set_near_and_far(std::max(1e-3f * radius, radius -
-  // bounding_radius),
-  //                         radius + bounding_radius);
 }
 
 void viewer::on_resize(int width, int height) {
@@ -756,7 +788,8 @@ void viewer::compute_motion_lines() {
   if (mesh.animations.empty()) return;
 
   constexpr float32 fps = 100.0f;
-  const auto duration = mesh.animations[0].duration / mesh.animations[0].ticks;
+  const auto duration =
+      mesh.animations[animation].duration / mesh.animations[animation].ticks;
   samples = static_cast<size_t>(std::floor(fps * duration));
   const auto time_step = duration / samples;
 
@@ -765,7 +798,7 @@ void viewer::compute_motion_lines() {
 
   for (size_t s = 0; s < samples; ++s) {
     const auto time = s * time_step;
-    const auto transforms = animation_transforms(mesh, 0, time);
+    const auto transforms = animation_transforms(mesh, animation, time);
 
     for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
       glm::mat4 x(0.0f);
@@ -809,6 +842,20 @@ void viewer::compute_motion_lines() {
   glEnableVertexAttribArray(1);
   glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(float32), (void*)0);
   curves_speed.allocate_and_initialize(motion_lines_speed);
+}
+
+void viewer::select_animation(int id) {
+  if (mesh.animations.empty() || (id < 0)) {
+    playing = false;
+    animation = -1;
+    device.transforms.allocate_and_initialize(global_transforms(mesh));
+    return;
+  }
+
+  animation = id % mesh.animations.size();
+  playing = true;
+  time = 0.0f;
+  compute_motion_lines();
 }
 
 }  // namespace demo

@@ -56,56 +56,96 @@ auto skeleton_from(const scene& in) -> skeleton {
 auto skinned_mesh::animation::channel::position(float32 time) const
     -> glm::mat4 {
   if (positions.empty()) return glm::mat4{1.0f};
-  if (positions.size() == 1)
-    return glm::translate(glm::mat4{1.0f}, positions[0].data);
+  const auto transform = [](const glm::vec3& p) {
+    return glm::translate(glm::mat4{1.0f}, p);
+  };
+  if (positions.size() == 1) return transform(positions[0].data);
+  if (time < positions[0].time) return transform(positions[0].data);
+  for (size_t i = 0; i < positions.size() - 1; ++i) {
+    if (time >= positions[i + 1].time) continue;
+    auto t1 = positions[i].time;
+    auto t2 = positions[i + 1].time;
+    auto t = (time - t1) / (t2 - t1);
+    const auto p = glm::mix(positions[i].data, positions[i + 1].data, t);
+    return transform(p);
+  }
+  return transform(positions.back().data);
 
-  size_t i = 0;
-  for (; i < positions.size() - 1; ++i)
-    if (time < positions[i + 1].time) break;
+  // size_t i = 0;
+  // for (; i < positions.size() - 1; ++i)
+  //   if (time < positions[i + 1].time) break;
 
-  auto t1 = positions[i].time;
-  auto t2 = positions[i + 1].time;
-  auto t = (time - t1) / (t2 - t1);
+  // auto t1 = positions[i].time;
+  // auto t2 = positions[i + 1].time;
+  // auto t = (time - t1) / (t2 - t1);
 
-  const auto p = glm::mix(positions[i].data, positions[i + 1].data, t);
-  return glm::translate(glm::mat4{1.0f}, p);
+  // const auto p = glm::mix(positions[i].data, positions[i + 1].data, t);
+  // return glm::translate(glm::mat4{1.0f}, p);
 }
 
 auto skinned_mesh::animation::channel::rotation(float32 time) const
     -> glm::mat4 {
   if (rotations.empty()) return glm::mat4{1.0f};
-  if (rotations.size() == 1)
-    return glm::toMat4(glm::normalize(rotations[0].data));
+  const auto transform = [](const glm::quat& q) {
+    return glm::toMat4(glm::normalize(q));
+  };
+  if (rotations.size() == 1) return transform(rotations[0].data);
+  if (time < rotations[0].time) return transform(rotations[0].data);
+  for (size_t i = 0; i < rotations.size() - 1; ++i) {
+    if (time >= rotations[i + 1].time) continue;
+    auto t1 = rotations[i].time;
+    auto t2 = rotations[i + 1].time;
+    auto t = (time - t1) / (t2 - t1);
+    const auto p = glm::slerp(rotations[i].data, rotations[i + 1].data, t);
+    return transform(p);
+  }
+  return transform(rotations.back().data);
 
-  size_t i = 0;
-  for (; i < rotations.size() - 1; ++i)
-    if (time < rotations[i + 1].time) break;
+  // size_t i = 0;
+  // for (; i < rotations.size() - 1; ++i)
+  //   if (time < rotations[i + 1].time) break;
 
-  auto t1 = rotations[i].time;
-  auto t2 = rotations[i + 1].time;
-  auto t = (time - t1) / (t2 - t1);
+  // auto t1 = rotations[i].time;
+  // auto t2 = rotations[i + 1].time;
+  // auto t = (time - t1) / (t2 - t1);
 
-  const auto p =
-      glm::slerp(rotations[i].data, rotations[i + 1].data, float32(t));
-  return glm::toMat4(glm::normalize(p));
+  // const auto p =
+  //     glm::slerp(rotations[i].data, rotations[i + 1].data, float32(t));
+  // return glm::toMat4(glm::normalize(p));
 }
 
 auto skinned_mesh::animation::channel::scaling(float32 time) const
     -> glm::mat4 {
   if (scalings.empty()) return glm::mat4{1.0f};
-  if (scalings.size() == 1)
-    return glm::scale(glm::mat4{1.0f}, scalings[0].data);
 
-  size_t i = 0;
-  for (; i < scalings.size() - 1; ++i)
-    if (time < scalings[i + 1].time) break;
+  const auto transform = [](const glm::vec3& p) {
+    return glm::scale(glm::mat4{1.0f}, p);
+  };
+  if (scalings.size() == 1) return transform(scalings[0].data);
+  if (time < scalings[0].time) return transform(scalings[0].data);
+  for (size_t i = 0; i < scalings.size() - 1; ++i) {
+    if (time >= scalings[i + 1].time) continue;
+    auto t1 = scalings[i].time;
+    auto t2 = scalings[i + 1].time;
+    auto t = (time - t1) / (t2 - t1);
+    const auto p = glm::mix(scalings[i].data, scalings[i + 1].data, t);
+    return transform(p);
+  }
+  return transform(scalings.back().data);
 
-  auto t1 = scalings[i].time;
-  auto t2 = scalings[i + 1].time;
-  auto t = (time - t1) / (t2 - t1);
+  // if (scalings.size() == 1)
+  //   return glm::scale(glm::mat4{1.0f}, scalings[0].data);
 
-  const auto p = glm::mix(scalings[i].data, scalings[i + 1].data, t);
-  return glm::scale(glm::mat4{1.0f}, p);
+  // size_t i = 0;
+  // for (; i < scalings.size() - 1; ++i)
+  //   if (time < scalings[i + 1].time) break;
+
+  // auto t1 = scalings[i].time;
+  // auto t2 = scalings[i + 1].time;
+  // auto t = (time - t1) / (t2 - t1);
+
+  // const auto p = glm::mix(scalings[i].data, scalings[i + 1].data, t);
+  // return glm::scale(glm::mat4{1.0f}, p);
 }
 
 auto skinned_mesh::animation::channel::transform(float32 time) const
