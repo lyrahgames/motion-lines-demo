@@ -56,8 +56,10 @@ class viewer : public opengl_window {
 
   opengl::vertex_array curves_va{};
   opengl::vertex_buffer curves_data{};
+  opengl::vertex_buffer curves_speed{};
 
   std::vector<glm::vec3> motion_lines_data{};
+  std::vector<float32> motion_lines_speed{};
   size_t samples = 0;
 
  public:
