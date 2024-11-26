@@ -61,11 +61,8 @@ layout (std430, binding = 2) readonly buffer bone_transforms {
 
 out vec3 position;
 out vec3 normal;
-out vec3 color;
 
 void main() {
-  // mat4 bone_transform = mat4(1.0);
-
   mat4 bone_transform = mat4(0.0);
   for (uint i = offsets[gl_VertexID]; i < offsets[gl_VertexID + 1]; ++i)
     bone_transform += weights[i].weight * transforms[weights[i].bid];
@@ -74,19 +71,6 @@ void main() {
 
   position = vec3(view * bone_transform * vec4(p, 1.0));
   normal = vec3(transpose(inverse(view * bone_transform)) * vec4(n, 0.0));
-
-  // color = vec3(float(offsets[gl_VertexID]) / weights.length());
-  // color = vec3(float(offsets[gl_VertexID + 1] - offsets[gl_VertexID]) / 4);
-
-  // color = vec3(0.0);
-  // for (uint i = offsets[gl_VertexID]; i < offsets[gl_VertexID + 1]; ++i)
-  //   color[i - offsets[gl_VertexID]] = weights[i].weight;
-
-  // color = vec3(0.0);
-  // for (uint i = offsets[gl_VertexID]; i < offsets[gl_VertexID + 1]; ++i)
-  //   color[i - offsets[gl_VertexID]] = float(weights[i].bid) / transforms.length();
-
-  color = vec3(1.0);
 }
 )##"};
 
@@ -101,12 +85,10 @@ layout (triangle_strip, max_vertices = 3) out;
 
 in vec3 position[];
 in vec3 normal[];
-in vec3 color[];
 
 out vec3 pos;
 out vec3 nor;
 out vec3 vnor;
-out vec3 col;
 noperspective out vec3 edge_distance;
 
 void main(){
@@ -136,7 +118,6 @@ void main(){
   nor = n;
   vnor = normal[0];
   pos = position[0];
-  col = color[0];
   gl_Position = gl_in[0].gl_Position;
   EmitVertex();
 
@@ -144,7 +125,6 @@ void main(){
   nor = n;
   vnor = normal[1];
   pos = position[1];
-  col = color[1];
   gl_Position = gl_in[1].gl_Position;
   EmitVertex();
 
@@ -152,7 +132,6 @@ void main(){
   nor = n;
   vnor = normal[2];
   pos = position[2];
-  col = color[2];
   gl_Position = gl_in[2].gl_Position;
   EmitVertex();
 
@@ -169,7 +148,6 @@ uniform bool use_face_normal = false;
 in vec3 pos;
 in vec3 nor;
 in vec3 vnor;
-in vec3 col;
 noperspective in vec3 edge_distance;
 
 layout (location = 0) out vec4 frag_color;
@@ -195,10 +173,16 @@ void main() {
     s = abs(normalize(nor).z);
 
   float light = 0.2 + 1.0 * pow(s, 1000) + 0.75 * pow(s, 0.2);
-
   // float light = 0.2 + 0.75 * pow(s, 0.2);
 
-  vec4 light_color = vec4(vec3(light) * col, alpha);
+  // Toon Shading
+  if (light <= 0.50) light = 0.20;
+  else if (light <= 0.60) light = 0.40;
+  else if (light <= 0.80) light = 0.60;
+  else if (light <= 0.90) light = 0.80;
+  else if (light <= 1.00) light = 1.00;
+
+  vec4 light_color = vec4(vec3(light), alpha);
 
   // Mix both color values.
 
@@ -234,6 +218,77 @@ void main() {
 
   if (!shader.linked()) {
     log::error(shader.info_log());
+    quit();
+    return;
+  }
+
+  const auto contours_gs = opengl::geometry_shader{R"##(
+#version 460 core
+
+uniform mat4 projection;
+
+layout (triangles) in;
+layout (line_strip, max_vertices = 2) out;
+
+in vec3 position[];
+in vec3 normal[];
+
+void main(){
+  vec4 a = gl_in[0].gl_Position;
+  vec4 b = gl_in[1].gl_Position;
+  vec4 c = gl_in[2].gl_Position;
+
+  float sa = dot(normal[0], position[0]);
+  float sb = dot(normal[1], position[1]);
+  float sc = dot(normal[2], position[2]);
+
+  if (sa * sb < 0) {
+    gl_Position = ((abs(sb) * a + abs(sa) * b) / (abs(sa) + abs(sb)));
+    EmitVertex();
+  }
+  if (sa * sc < 0) {
+    gl_Position = ((abs(sc) * a + abs(sa) * c) / (abs(sa) + abs(sc)));
+    EmitVertex();
+  }
+  if (sb * sc < 0) {
+    gl_Position = ((abs(sc) * b + abs(sb) * c) / (abs(sb) + abs(sc)));
+    EmitVertex();
+  }
+  EndPrimitive();
+}
+)##"};
+
+  const auto contours_fs = opengl::fragment_shader{R"##(
+#version 460 core
+
+uniform vec4 line_color;
+
+layout (location = 0) out vec4 frag_color;
+
+void main() {
+  frag_color = line_color;
+}
+)##"};
+
+  if (!contours_gs) {
+    log::error(contours_gs.info_log());
+    quit();
+    return;
+  }
+
+  if (!contours_fs) {
+    log::error(contours_fs.info_log());
+    quit();
+    return;
+  }
+
+  contours_shader.attach(vs);
+  contours_shader.attach(contours_gs);
+  contours_shader.attach(contours_fs);
+  contours_shader.link();
+
+  if (!contours_shader.linked()) {
+    log::error(contours_shader.info_log());
     quit();
     return;
   }
@@ -574,7 +629,7 @@ void viewer::render() {
     curve_shader.try_set("view", camera.view_matrix());
     curve_shader.try_set("viewport", camera.viewport_matrix());
     // curve_shader.set("line_width", 0.5f);
-    curve_shader.set("line_width", 1.2f);
+    curve_shader.set("line_width", 2.5f);
     curve_shader.set("line_color", vec4{vec3{0.2f}, 1.0f});
     curve_shader.set("screen_width", float(camera.screen_width()));
     curve_shader.set("screen_height", float(camera.screen_height()));
@@ -597,6 +652,14 @@ void viewer::render() {
   //
   device.va.bind();
   device.faces.bind();
+  glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
+  //
+  contours_shader.try_set("projection", camera.projection_matrix());
+  contours_shader.try_set("view", camera.view_matrix());
+  contours_shader.set("line_color", vec4{vec3{0.2f}, 1.0f});
+  glLineWidth(5.0f);
+  contours_shader.use();
+  //
   glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
 }
 

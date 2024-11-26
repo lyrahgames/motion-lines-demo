@@ -47,6 +47,7 @@ class viewer : public opengl_window {
   int animation = 0;
 
   opengl::shader_program shader{};
+  opengl::shader_program contours_shader{};
   opengl::shader_program curve_shader{};
   struct device_storage {
     opengl::vertex_array va{};
