@@ -573,7 +573,8 @@ void viewer::render() {
     curve_shader.try_set("projection", camera.projection_matrix());
     curve_shader.try_set("view", camera.view_matrix());
     curve_shader.try_set("viewport", camera.viewport_matrix());
-    curve_shader.set("line_width", 0.5f);
+    // curve_shader.set("line_width", 0.5f);
+    curve_shader.set("line_width", 1.2f);
     curve_shader.set("line_color", vec4{vec3{0.2f}, 1.0f});
     curve_shader.set("screen_width", float(camera.screen_width()));
     curve_shader.set("screen_height", float(camera.screen_height()));
@@ -871,6 +872,39 @@ void viewer::load_vids_from_file(const std::filesystem::path& path) {
   std::ifstream file{path};
   uint32 vid{};
   while (file >> vid) vids.push_back(vid);
+}
+
+void viewer::select_maxmin_vids(size_t count) {
+  if (mesh.vertices.empty()) return;
+
+  vids.clear();
+  vids.push_back(0);
+
+  std::vector<float32> distances(mesh.vertices.size() * mesh.vertices.size());
+  for (size_t vid1 = 0; vid1 < mesh.vertices.size(); ++vid1)
+    for (size_t vid2 = 0; vid2 < mesh.vertices.size(); ++vid2)
+      distances[vid1 * mesh.vertices.size() + vid2] = glm::distance(
+          mesh.vertices[vid1].position, mesh.vertices[vid2].position);
+
+  for (size_t it = 0; it < count; ++it) {
+    size_t max_vid = 0;
+    float32 max_distance = 0;
+    for (size_t vid1 = 0; vid1 < mesh.vertices.size(); ++vid1) {
+      float32 min_distance = infinity;
+      for (auto vid2 : vids)
+        min_distance = std::min(min_distance,
+                                distances[vid1 * mesh.vertices.size() + vid2]);
+      if (min_distance >= max_distance) {
+        max_vid = vid1;
+        max_distance = min_distance;
+      }
+    }
+    vids.push_back(max_vid);
+  }
+}
+
+void viewer::select_maxmin_vids() {
+  select_maxmin_vids(mesh.vertices.size() * 0.01f);
 }
 
 }  // namespace demo

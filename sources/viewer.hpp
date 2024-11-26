@@ -74,6 +74,8 @@ class viewer : public opengl_window {
 
   void load_scene_from_file(const std::filesystem::path& path);
   void load_vids_from_file(const std::filesystem::path& path);
+  void select_maxmin_vids(size_t count);
+  void select_maxmin_vids();
 
  private:
   void process(const sf::Event event);

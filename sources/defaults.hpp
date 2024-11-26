@@ -28,6 +28,7 @@ using xstd::float32;
 using xstd::float64;
 using xstd::uint32;
 //
+using xstd::infinity;
 using xstd::pi;
 
 using glm::ivec2;
