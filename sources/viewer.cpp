@@ -482,6 +482,10 @@ void viewer::process(const sf::Event event) {
         case sf::Keyboard::Right:
           select_animation(++animation);
           break;
+
+        case sf::Keyboard::S:
+          sparse = !sparse;
+          break;
       }
       break;
 
@@ -576,8 +580,13 @@ void viewer::render() {
     //
     curves_va.bind();
     curves_data.bind();
-    for (size_t vid = 0; vid < mesh.vertices.size(); ++vid)
-      glDrawArrays(GL_LINE_STRIP, vid * samples + sample_first, sample_count);
+    if (sparse) {
+      for (auto vid : vids)
+        glDrawArrays(GL_LINE_STRIP, vid * samples + sample_first, sample_count);
+    } else {
+      for (size_t vid = 0; vid < mesh.vertices.size(); ++vid)
+        glDrawArrays(GL_LINE_STRIP, vid * samples + sample_first, sample_count);
+    }
   }
 
   shader.try_set("projection", camera.projection_matrix());
@@ -856,6 +865,12 @@ void viewer::select_animation(int id) {
   playing = true;
   time = 0.0f;
   compute_motion_lines();
+}
+
+void viewer::load_vids_from_file(const std::filesystem::path& path) {
+  std::ifstream file{path};
+  uint32 vid{};
+  while (file >> vid) vids.push_back(vid);
 }
 
 }  // namespace demo

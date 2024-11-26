@@ -65,11 +65,15 @@ class viewer : public opengl_window {
   std::vector<float32> motion_lines_speed{};
   size_t samples = 0;
 
+  std::vector<uint32> vids{};
+  bool sparse = false;
+
  public:
   viewer(int width = 500, int height = 500);
   void run();
 
   void load_scene_from_file(const std::filesystem::path& path);
+  void load_vids_from_file(const std::filesystem::path& path);
 
  private:
   void process(const sf::Event event);
