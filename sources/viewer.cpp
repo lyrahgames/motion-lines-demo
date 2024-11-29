@@ -594,9 +594,12 @@ void viewer::update_view() {
   p += origin;
   camera.move(p).look_at(origin, up);
 
-  // camera.set_near_and_far(std::max(1e-3f * radius, radius -
-  // bounding_radius),
+  // camera.set_near_and_far(std::max(1e-3f * radius, radius - bounding_radius),
   //                         radius + bounding_radius);
+
+  camera.set_near_and_far(
+      std::max(1e-3f * bounding_radius, radius - 10.0f * bounding_radius),
+      radius + 10.0f * bounding_radius);
 }
 
 void viewer::render() {
@@ -654,13 +657,13 @@ void viewer::render() {
   device.faces.bind();
   glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
   //
-  contours_shader.try_set("projection", camera.projection_matrix());
-  contours_shader.try_set("view", camera.view_matrix());
-  contours_shader.set("line_color", vec4{vec3{0.2f}, 1.0f});
-  glLineWidth(5.0f);
-  contours_shader.use();
-  //
-  glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
+  // contours_shader.try_set("projection", camera.projection_matrix());
+  // contours_shader.try_set("view", camera.view_matrix());
+  // contours_shader.set("line_color", vec4{vec3{0.2f}, 1.0f});
+  // glLineWidth(5.0f);
+  // contours_shader.use();
+  // //
+  // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
 }
 
 void viewer::on_resize(int width, int height) {

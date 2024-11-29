@@ -70,17 +70,6 @@ auto skinned_mesh::animation::channel::position(float32 time) const
     return transform(p);
   }
   return transform(positions.back().data);
-
-  // size_t i = 0;
-  // for (; i < positions.size() - 1; ++i)
-  //   if (time < positions[i + 1].time) break;
-
-  // auto t1 = positions[i].time;
-  // auto t2 = positions[i + 1].time;
-  // auto t = (time - t1) / (t2 - t1);
-
-  // const auto p = glm::mix(positions[i].data, positions[i + 1].data, t);
-  // return glm::translate(glm::mat4{1.0f}, p);
 }
 
 auto skinned_mesh::animation::channel::rotation(float32 time) const
@@ -100,18 +89,6 @@ auto skinned_mesh::animation::channel::rotation(float32 time) const
     return transform(p);
   }
   return transform(rotations.back().data);
-
-  // size_t i = 0;
-  // for (; i < rotations.size() - 1; ++i)
-  //   if (time < rotations[i + 1].time) break;
-
-  // auto t1 = rotations[i].time;
-  // auto t2 = rotations[i + 1].time;
-  // auto t = (time - t1) / (t2 - t1);
-
-  // const auto p =
-  //     glm::slerp(rotations[i].data, rotations[i + 1].data, float32(t));
-  // return glm::toMat4(glm::normalize(p));
 }
 
 auto skinned_mesh::animation::channel::scaling(float32 time) const
@@ -132,20 +109,6 @@ auto skinned_mesh::animation::channel::scaling(float32 time) const
     return transform(p);
   }
   return transform(scalings.back().data);
-
-  // if (scalings.size() == 1)
-  //   return glm::scale(glm::mat4{1.0f}, scalings[0].data);
-
-  // size_t i = 0;
-  // for (; i < scalings.size() - 1; ++i)
-  //   if (time < scalings[i + 1].time) break;
-
-  // auto t1 = scalings[i].time;
-  // auto t2 = scalings[i + 1].time;
-  // auto t = (time - t1) / (t2 - t1);
-
-  // const auto p = glm::mix(scalings[i].data, scalings[i + 1].data, t);
-  // return glm::scale(glm::mat4{1.0f}, p);
 }
 
 auto skinned_mesh::animation::channel::transform(float32 time) const

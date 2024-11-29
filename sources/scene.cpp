@@ -234,7 +234,7 @@ static void update_skeleton(scene& s) {
     data.data.resize(data.offsets.back());
   }
   // assign weights
-  for (size_t bid = 0; bid < s.skeleton.bones.size(); ++bid) {
+  for (uint32 bid = 0; bid < s.skeleton.bones.size(); ++bid) {
     auto& node = *s.skeleton.nodes[bid];
     for (auto& [mid, weights] : node.bone_entries) {
       for (auto& [vid, weight] : weights) {

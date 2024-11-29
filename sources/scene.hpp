@@ -3,21 +3,6 @@
 
 namespace demo {
 
-struct scene_skeleton_bone {
-  glm::mat4 offset;
-  glm::mat4 transform;
-};
-
-struct scene_skeleton_mesh_weight {
-  uint32 bone{};
-  float32 weight{};
-};
-
-struct scene_skeleton_mesh_weight_data {
-  std::vector<uint32> offsets{};
-  std::vector<scene_skeleton_mesh_weight> data{};
-};
-
 struct scene {
   struct mesh {
     struct vertex {
@@ -85,11 +70,25 @@ struct scene {
     std::vector<channel> channels{};
   };
 
-  struct flat_skeleton {
+  struct skeleton {
+    struct bone {
+      glm::mat4 offset;
+      glm::mat4 transform;
+    };
+
+    struct weight_data {
+      struct entry {
+        uint32 bone{};
+        float32 weight{};
+      };
+      std::vector<uint32> offsets{};
+      std::vector<entry> data{};
+    };
+
     std::vector<uint32> parents{};
-    std::vector<scene_skeleton_bone> bones{};
+    std::vector<bone> bones{};
     std::vector<node*> nodes{};
-    std::vector<scene_skeleton_mesh_weight_data> weights{};
+    std::vector<weight_data> weights{};
 
     std::map<std::string_view, uint32> bone_name_map{};
 
@@ -131,7 +130,7 @@ struct scene {
   std::map<std::string_view, node&> node_name_map{};
   std::vector<animation> animations{};
 
-  flat_skeleton skeleton{};
+  struct skeleton skeleton {};
 };
 
 void traverse(scene::node& node, auto&& f);
