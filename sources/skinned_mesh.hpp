@@ -119,4 +119,76 @@ inline auto animation_transforms(const skinned_mesh& mesh,
   return result;
 }
 
+auto weighted_transform(const skinned_mesh& mesh,
+                        auto&& transforms,
+                        uint32 vid) -> glm::mat4 {
+  glm::mat4 result(0.0f);
+  for (auto i = mesh.weights.offsets[vid];  //
+       i < mesh.weights.offsets[vid + 1]; ++i) {
+    const auto [index, weight] = mesh.weights.entries[i];
+    result += weight * transforms[index];
+  }
+  return result;
+}
+
+struct sampled_animation {
+  struct vertex : triangle_mesh::vertex {
+    float32 time;
+    float32 length;
+  };
+
+  std::vector<vertex> samples{};
+  size_t sample_count{};
+  float32 time{};
+  float32 max_length{};
+};
+
+inline auto sampled_animation_from(const skinned_mesh& mesh,
+                                   size_t aid,
+                                   size_t fps = 60) -> sampled_animation {
+  sampled_animation result{};
+
+  result.time = mesh.animations[aid].duration / mesh.animations[aid].ticks;
+  result.sample_count = static_cast<size_t>(std::floor(fps * result.time));
+  result.samples.resize(mesh.vertices.size() * result.sample_count);
+
+  const auto time_step = result.time / result.sample_count;
+
+  auto transforms = animation_transforms(mesh, aid, 0.0f);
+  for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
+    const auto x = weighted_transform(mesh, transforms, vid);
+    const auto index = vid * result.sample_count;
+    auto& v = result.samples[index];
+    v.position = glm::vec3(x * glm::vec4(mesh.vertices[vid].position, 1.0f));
+    v.normal = glm::vec3(transpose(inverse(x)) *
+                         glm::vec4(mesh.vertices[vid].normal, 0.0f));
+    v.time = 0.0f;
+    v.length = 0.0f;
+  }
+
+  for (size_t s = 1; s < result.sample_count; ++s) {
+    const auto time = s * time_step;
+    load_animation_transforms(mesh, aid, time, transforms);
+
+    for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
+      const auto x = weighted_transform(mesh, transforms, vid);
+      const auto index = vid * result.sample_count + s;
+      auto& v = result.samples[index];
+      auto& p = result.samples[index - 1];
+      v.position = glm::vec3(x * glm::vec4(mesh.vertices[vid].position, 1.0f));
+      v.normal = glm::vec3(transpose(inverse(x)) *
+                           glm::vec4(mesh.vertices[vid].normal, 0.0f));
+      v.time = time;
+      v.length = p.length + glm::distance(p.position, v.position);
+    }
+  }
+
+  for (size_t vid = 0; vid < mesh.vertices.size(); ++vid)
+    result.max_length =
+        std::max(result.max_length,
+                 result.samples[(vid + 1) * result.sample_count - 1].length);
+
+  return result;
+}
+
 }  // namespace demo

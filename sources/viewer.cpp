@@ -30,6 +30,7 @@ viewer::viewer(int width, int height) : opengl_window{width, height} {
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glPointSize(10.0f);
+  glLineWidth(0.5f);
   glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
   create_shader();
@@ -151,6 +152,7 @@ in vec3 vnor;
 noperspective in vec3 edge_distance;
 
 layout (location = 0) out vec4 frag_color;
+// layout (depth_unchanged) out float gl_FragDepth;
 
 void main() {
   // Compute distance from edges.
@@ -190,6 +192,8 @@ void main() {
     frag_color = mix(line_color, light_color, mix_value);
   else
     frag_color = light_color;
+
+  gl_FragDepth = gl_FragCoord.z;
 }
 )##"};
 
@@ -264,9 +268,11 @@ void main(){
 uniform vec4 line_color;
 
 layout (location = 0) out vec4 frag_color;
+// layout (depth_unchanged) out float gl_FragDepth;
 
 void main() {
   frag_color = line_color;
+  gl_FragDepth = gl_FragCoord.z - 0.5;
 }
 )##"};
 
@@ -302,13 +308,24 @@ uniform mat4 projection;
 uniform mat4 view;
 
 layout (location = 0) in vec3 p;
-layout (location = 1) in float v;
+layout (location = 1) in vec3 n;
+layout (location = 2) in float t;
+layout (location = 3) in float l;
 
-out float speed;
+// layout (location = 1) in float v;
+
+// out float speed;
+// out vec3 normal;
+
+out float time;
+out float length;
 
 void main(){
   gl_Position = projection * view * vec4(p, 1.0);
-  speed = v;
+  // speed = 0.0f;
+
+  time = t;
+  length = l;
 }
 )##"};
 
@@ -442,16 +459,35 @@ void main(){
 
 uniform vec4 line_color;
 
-in float s;
-noperspective in vec2 uv;
+uniform float global_time;
+uniform float stroke_length;
+uniform float max_stroke_length;
+
+in float time;
+in float length;
+
+// in float s;
+// noperspective in vec2 uv;
 
 layout (location = 0) out vec4 frag_color;
+// layout (depth_unchanged) out float gl_FragDepth;
 
 void main() {
   // frag_color = vec4(0.1, 0.5, 0.9, 1.0);
-  if (s < 0.2) discard;
-  if (length(uv) >= 1.0) discard;
+  // if (s < 0.2) discard;
+  // if (length(uv) >= 1.0) discard;
+
+  const float delta = 0.5;
+
+  if (time >= global_time - 0.05) discard;
+  if (time < global_time - delta) discard;
+
   frag_color = line_color;
+  frag_color.a = (time + delta - global_time) / delta;
+
+  // if (gl_FragCoord.z < 0.9999) discard;
+  gl_FragDepth = gl_FragCoord.z;
+  // gl_FragDepth = gl_FragCoord.z + 0.0001;
 }
 )##"};
 
@@ -474,7 +510,7 @@ void main() {
   }
 
   curve_shader.attach(vs);
-  curve_shader.attach(gs);
+  // curve_shader.attach(gs);
   curve_shader.attach(fs);
   curve_shader.link();
 
@@ -621,49 +657,85 @@ void viewer::render() {
 
     const size_t max_samples = 35;
     const auto sample_last =
-        static_cast<size_t>(std::floor(time * samples / duration));
+        static_cast<size_t>(std::floor(time * sample_count / duration));
     const size_t sample_first =
         (sample_last >= max_samples) ? (sample_last - max_samples) : (0);
     const auto sample_count = sample_last - sample_first;
 
     // Curves
+    // curve_shader.use();
+    // curve_shader.try_set("projection", camera.projection_matrix());
+    // curve_shader.try_set("view", camera.view_matrix());
+    // curve_shader.try_set("viewport", camera.viewport_matrix());
+    // // curve_shader.set("line_width", 0.5f);
+    // curve_shader.set("line_width", 2.5f);
+    // curve_shader.set("line_color", vec4{vec3{0.2f}, 1.0f});
+    // curve_shader.set("screen_width", float(camera.screen_width()));
+    // curve_shader.set("screen_height", float(camera.screen_height()));
+    // //
+    // curves_va.bind();
+    // curves_data.bind();
+    // if (sparse) {
+    //   for (auto vid : vids)
+    //     glDrawArrays(GL_LINE_STRIP, vid * sample_count + sample_first,
+    //                  sample_count);
+    // } else {
+    //   for (size_t vid = 0; vid < mesh.vertices.size(); ++vid)
+    //     glDrawArrays(GL_LINE_STRIP, vid * sample_count + sample_first,
+    //                  sample_count);
+    // }
+
     curve_shader.use();
     curve_shader.try_set("projection", camera.projection_matrix());
     curve_shader.try_set("view", camera.view_matrix());
     curve_shader.try_set("viewport", camera.viewport_matrix());
-    // curve_shader.set("line_width", 0.5f);
-    curve_shader.set("line_width", 2.5f);
-    curve_shader.set("line_color", vec4{vec3{0.2f}, 1.0f});
-    curve_shader.set("screen_width", float(camera.screen_width()));
-    curve_shader.set("screen_height", float(camera.screen_height()));
+    curve_shader.try_set("line_width", 1.5f);
+    // curve_shader.set("line_width", 1.5f);
+    curve_shader.try_set("line_color", vec4{vec3{0.2f}, 1.0f});
+    curve_shader.try_set("screen_width", float(camera.screen_width()));
+    curve_shader.try_set("screen_height", float(camera.screen_height()));
     //
-    curves_va.bind();
-    curves_data.bind();
+    curve_shader.try_set("global_time", time);
+    curve_shader.try_set("max_stroke_length", samples.max_length);
+    //
+    samples_va.bind();
+    samples_data.bind();
     if (sparse) {
       for (auto vid : vids)
-        glDrawArrays(GL_LINE_STRIP, vid * samples + sample_first, sample_count);
+        glDrawArrays(GL_LINE_STRIP, vid * samples.sample_count + sample_first,
+                     sample_count);
     } else {
-      for (size_t vid = 0; vid < mesh.vertices.size(); ++vid)
-        glDrawArrays(GL_LINE_STRIP, vid * samples + sample_first, sample_count);
+      for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
+        curve_shader.try_set(
+            "stroke_length",
+            samples.samples[(vid + 1) * samples.sample_count - 1].length);
+        glDrawArrays(GL_LINE_STRIP,
+                     vid * samples.sample_count /*+ sample_first*/,
+                     samples.sample_count);
+      }
     }
   }
 
+  // glDepthFunc(GL_ALWAYS);
+  device.va.bind();
+  device.faces.bind();
+  //
+  // contours_shader.try_set("projection", camera.projection_matrix());
+  // contours_shader.try_set("view", camera.view_matrix());
+  // contours_shader.set("line_color", vec4{vec3{1.0f}, 1.0f});
+  // glLineWidth(2.5f);
+  // contours_shader.use();
+  // //
+  // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
+
+  // glDepthFunc(GL_LESS);
+  //
   shader.try_set("projection", camera.projection_matrix());
   shader.try_set("view", camera.view_matrix());
   shader.try_set("viewport", camera.viewport_matrix());
   shader.use();
   //
-  device.va.bind();
-  device.faces.bind();
   glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
-  //
-  // contours_shader.try_set("projection", camera.projection_matrix());
-  // contours_shader.try_set("view", camera.view_matrix());
-  // contours_shader.set("line_color", vec4{vec3{0.2f}, 1.0f});
-  // glLineWidth(5.0f);
-  // contours_shader.use();
-  // //
-  // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
 }
 
 void viewer::on_resize(int width, int height) {
@@ -846,6 +918,7 @@ void viewer::load_scene_from_file(const std::filesystem::path& path) {
   device.transforms.allocate_and_initialize(global_transforms(mesh));
 
   compute_motion_lines();
+  compute_animation_samples();
 }
 
 void viewer::fit_view_to_surface() {
@@ -866,33 +939,34 @@ void viewer::compute_motion_lines() {
   constexpr float32 fps = 100.0f;
   const auto duration =
       mesh.animations[animation].duration / mesh.animations[animation].ticks;
-  samples = static_cast<size_t>(std::floor(fps * duration));
-  const auto time_step = duration / samples;
+  sample_count = static_cast<size_t>(std::floor(fps * duration));
+  const auto time_step = duration / sample_count;
 
   motion_lines_data.clear();
-  motion_lines_data.resize(mesh.vertices.size() * samples);
+  motion_lines_data.resize(mesh.vertices.size() * sample_count);
 
-  for (size_t s = 0; s < samples; ++s) {
+  for (size_t s = 0; s < sample_count; ++s) {
     const auto time = s * time_step;
     const auto transforms = animation_transforms(mesh, animation, time);
 
     for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
-      glm::mat4 x(0.0f);
-      for (auto i = mesh.weights.offsets[vid];
-           i < mesh.weights.offsets[vid + 1]; ++i) {
-        const auto [k, weight] = mesh.weights.entries[i];
-        x += weight * transforms[k];
-      }
-      motion_lines_data[vid * samples + s] =
+      // glm::mat4 x(0.0f);
+      // for (auto i = mesh.weights.offsets[vid];
+      //      i < mesh.weights.offsets[vid + 1]; ++i) {
+      //   const auto [k, weight] = mesh.weights.entries[i];
+      //   x += weight * transforms[k];
+      // }
+      const auto x = weighted_transform(mesh, transforms, vid);
+      motion_lines_data[vid * sample_count + s] =
           glm::vec3(x * glm::vec4(mesh.vertices[vid].position, 1.0f));
     }
   }
 
-  motion_lines_speed.assign(mesh.vertices.size() * samples, 0.0f);
+  motion_lines_speed.assign(mesh.vertices.size() * sample_count, 0.0f);
   float32 max_speed = 0.0f;
   for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
-    for (size_t s = 1; s < samples - 1; ++s) {
-      const auto i = vid * samples + s;
+    for (size_t s = 1; s < sample_count - 1; ++s) {
+      const auto i = vid * sample_count + s;
       const auto speed =
           glm::distance(motion_lines_data[i - 1], motion_lines_data[i + 1]) /
           time_step;
@@ -901,8 +975,8 @@ void viewer::compute_motion_lines() {
     }
   }
   for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
-    for (size_t s = 1; s < samples - 1; ++s) {
-      const auto i = vid * samples + s;
+    for (size_t s = 1; s < sample_count - 1; ++s) {
+      const auto i = vid * sample_count + s;
       motion_lines_speed[i] /= max_speed;
     }
   }
@@ -932,6 +1006,7 @@ void viewer::select_animation(int id) {
   playing = true;
   time = 0.0f;
   compute_motion_lines();
+  compute_animation_samples();
 }
 
 void viewer::load_vids_from_file(const std::filesystem::path& path) {
@@ -971,6 +1046,40 @@ void viewer::select_maxmin_vids(size_t count) {
 
 void viewer::select_maxmin_vids() {
   select_maxmin_vids(mesh.vertices.size() * 0.01f);
+}
+
+void viewer::compute_animation_samples() {
+  samples = sampled_animation_from(mesh, animation, 100);
+
+  samples_va.bind();
+  //
+  samples_data.bind();
+  //
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE,
+                        sizeof(sampled_animation::vertex), (void*)0);
+  //
+  glEnableVertexAttribArray(1);
+  glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE,
+                        sizeof(sampled_animation::vertex),
+                        (void*)offsetof(sampled_animation::vertex, position));
+  //
+  glEnableVertexAttribArray(2);
+  glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE,
+                        sizeof(sampled_animation::vertex),
+                        (void*)offsetof(sampled_animation::vertex, time));
+  //
+  glEnableVertexAttribArray(3);
+  glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE,
+                        sizeof(sampled_animation::vertex),
+                        (void*)offsetof(sampled_animation::vertex, length));
+  //
+  samples_data.allocate_and_initialize(samples.samples);
+  //
+  // samples_speed.bind();
+  // glEnableVertexAttribArray(1);
+  // glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(float32), (void*)0);
+  // samples_speed.allocate_and_initialize(motion_lines_speed);
 }
 
 }  // namespace demo

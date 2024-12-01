@@ -64,10 +64,14 @@ class viewer : public opengl_window {
 
   std::vector<glm::vec3> motion_lines_data{};
   std::vector<float32> motion_lines_speed{};
-  size_t samples = 0;
+  size_t sample_count = 0;
 
   std::vector<uint32> vids{};
   bool sparse = false;
+
+  sampled_animation samples{};
+  opengl::vertex_array samples_va{};
+  opengl::vertex_buffer samples_data{};
 
  public:
   viewer(int width = 500, int height = 500);
@@ -105,6 +109,8 @@ class viewer : public opengl_window {
   void compute_motion_lines();
 
   void select_animation(int id);
+
+  void compute_animation_samples();
 };
 
 }  // namespace demo
