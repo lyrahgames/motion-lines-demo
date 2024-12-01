@@ -43,6 +43,8 @@ void viewer::create_shader() {
 uniform mat4 projection;
 uniform mat4 view;
 
+uniform uint transforms_count;
+
 layout (location = 0) in vec3 p;
 layout (location = 1) in vec3 n;
 
@@ -63,15 +65,20 @@ layout (std430, binding = 2) readonly buffer bone_transforms {
 out vec3 position;
 out vec3 normal;
 
+flat out uint id;
+
 void main() {
-  mat4 bone_transform = mat4(0.0);
+  uint offset = gl_InstanceID * transforms_count;
+  mat4 model = mat4(0.0);
   for (uint i = offsets[gl_VertexID]; i < offsets[gl_VertexID + 1]; ++i)
-    bone_transform += weights[i].weight * transforms[weights[i].bid];
+    model += weights[i].weight * transforms[offset + weights[i].bid];
 
-  gl_Position = projection * view * bone_transform * vec4(p, 1.0);
+  gl_Position = projection * view * model * vec4(p, 1.0);
 
-  position = vec3(view * bone_transform * vec4(p, 1.0));
-  normal = vec3(transpose(inverse(view * bone_transform)) * vec4(n, 0.0));
+  position = vec3(view * model * vec4(p, 1.0));
+  normal = vec3(transpose(inverse(view * model)) * vec4(n, 0.0));
+
+  id = gl_InstanceID;
 }
 )##"};
 
@@ -86,11 +93,13 @@ layout (triangle_strip, max_vertices = 3) out;
 
 in vec3 position[];
 in vec3 normal[];
+flat in uint id[];
 
 out vec3 pos;
 out vec3 nor;
 out vec3 vnor;
 noperspective out vec3 edge_distance;
+flat out uint instance;
 
 void main(){
   vec3 p0 = vec3(viewport * (gl_in[0].gl_Position /
@@ -120,6 +129,7 @@ void main(){
   vnor = normal[0];
   pos = position[0];
   gl_Position = gl_in[0].gl_Position;
+  instance = id[0];
   EmitVertex();
 
   edge_distance = vec3(0, hb, 0);
@@ -127,6 +137,7 @@ void main(){
   vnor = normal[1];
   pos = position[1];
   gl_Position = gl_in[1].gl_Position;
+  instance = id[1];
   EmitVertex();
 
   edge_distance = vec3(0, 0, hc);
@@ -134,6 +145,7 @@ void main(){
   vnor = normal[2];
   pos = position[2];
   gl_Position = gl_in[2].gl_Position;
+  instance = id[2];
   EmitVertex();
 
   EndPrimitive();
@@ -150,9 +162,25 @@ in vec3 pos;
 in vec3 nor;
 in vec3 vnor;
 noperspective in vec3 edge_distance;
+flat in uint instance;
 
 layout (location = 0) out vec4 frag_color;
 // layout (depth_unchanged) out float gl_FragDepth;
+
+float colormap_red(float x) {
+    return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
+}
+
+float colormap_green(float x) {
+    return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
+}
+
+vec4 colormap(float x) {
+    float r = clamp(colormap_red(x), 0.0, 1.0);
+    float g = clamp(colormap_green(x), 0.0, 1.0);
+    float b = 1.0;
+    return vec4(r, g, b, 1.0);
+}
 
 void main() {
   // Compute distance from edges.
@@ -184,7 +212,14 @@ void main() {
   else if (light <= 0.90) light = 0.80;
   else if (light <= 1.00) light = 1.00;
 
+  float weight = 1.0 - instance / 10.0;
+
+  alpha = weight;
+
   vec4 light_color = vec4(vec3(light), alpha);
+
+  if (instance > 0)
+    light_color = light_color * colormap(weight);
 
   // Mix both color values.
 
@@ -193,7 +228,7 @@ void main() {
   else
     frag_color = light_color;
 
-  gl_FragDepth = gl_FragCoord.z;
+  gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * instance / 10.0;
 }
 )##"};
 
@@ -662,58 +697,35 @@ void viewer::render() {
         (sample_last >= max_samples) ? (sample_last - max_samples) : (0);
     const auto sample_count = sample_last - sample_first;
 
-    // Curves
     // curve_shader.use();
     // curve_shader.try_set("projection", camera.projection_matrix());
     // curve_shader.try_set("view", camera.view_matrix());
     // curve_shader.try_set("viewport", camera.viewport_matrix());
-    // // curve_shader.set("line_width", 0.5f);
-    // curve_shader.set("line_width", 2.5f);
-    // curve_shader.set("line_color", vec4{vec3{0.2f}, 1.0f});
-    // curve_shader.set("screen_width", float(camera.screen_width()));
-    // curve_shader.set("screen_height", float(camera.screen_height()));
+    // curve_shader.try_set("line_width", 1.5f);
+    // // curve_shader.set("line_width", 1.5f);
+    // curve_shader.try_set("line_color", vec4{vec3{0.2f}, 1.0f});
+    // curve_shader.try_set("screen_width", float(camera.screen_width()));
+    // curve_shader.try_set("screen_height", float(camera.screen_height()));
     // //
-    // curves_va.bind();
-    // curves_data.bind();
+    // curve_shader.try_set("global_time", time);
+    // curve_shader.try_set("max_stroke_length", samples.max_length);
+    // //
+    // samples_va.bind();
+    // samples_data.bind();
     // if (sparse) {
     //   for (auto vid : vids)
-    //     glDrawArrays(GL_LINE_STRIP, vid * sample_count + sample_first,
+    //     glDrawArrays(GL_LINE_STRIP, vid * samples.sample_count + sample_first,
     //                  sample_count);
     // } else {
-    //   for (size_t vid = 0; vid < mesh.vertices.size(); ++vid)
-    //     glDrawArrays(GL_LINE_STRIP, vid * sample_count + sample_first,
-    //                  sample_count);
+    //   for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
+    //     curve_shader.try_set(
+    //         "stroke_length",
+    //         samples.samples[(vid + 1) * samples.sample_count - 1].length);
+    //     glDrawArrays(GL_LINE_STRIP,
+    //                  vid * samples.sample_count /*+ sample_first*/,
+    //                  samples.sample_count);
+    //   }
     // }
-
-    curve_shader.use();
-    curve_shader.try_set("projection", camera.projection_matrix());
-    curve_shader.try_set("view", camera.view_matrix());
-    curve_shader.try_set("viewport", camera.viewport_matrix());
-    curve_shader.try_set("line_width", 1.5f);
-    // curve_shader.set("line_width", 1.5f);
-    curve_shader.try_set("line_color", vec4{vec3{0.2f}, 1.0f});
-    curve_shader.try_set("screen_width", float(camera.screen_width()));
-    curve_shader.try_set("screen_height", float(camera.screen_height()));
-    //
-    curve_shader.try_set("global_time", time);
-    curve_shader.try_set("max_stroke_length", samples.max_length);
-    //
-    samples_va.bind();
-    samples_data.bind();
-    if (sparse) {
-      for (auto vid : vids)
-        glDrawArrays(GL_LINE_STRIP, vid * samples.sample_count + sample_first,
-                     sample_count);
-    } else {
-      for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
-        curve_shader.try_set(
-            "stroke_length",
-            samples.samples[(vid + 1) * samples.sample_count - 1].length);
-        glDrawArrays(GL_LINE_STRIP,
-                     vid * samples.sample_count /*+ sample_first*/,
-                     samples.sample_count);
-      }
-    }
   }
 
   // glDepthFunc(GL_ALWAYS);
@@ -728,14 +740,37 @@ void viewer::render() {
   // //
   // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
 
+  const size_t trails = 10;
+  {
+    const float32 dt = 0.05f;
+    std::vector<glm::mat4> transforms(trails * mesh.bones.size());
+    load_animation_transforms(
+        mesh, animation, time,
+        std::span{transforms.data(), transforms.data() + mesh.bones.size()});
+    for (size_t i = 1; i < trails; ++i) {
+      const auto t =
+          std::clamp(std::floor((time - (i - 1) * dt) / dt) * dt, 0.0f, time);
+      // std::clamp(time - i * dt, 0.0f, time);
+      const auto first = i * mesh.bones.size();
+      const auto last = (i + 1) * mesh.bones.size();
+      auto view =
+          std::span{transforms.data() + first, transforms.data() + last};
+      load_animation_transforms(mesh, animation, t, view);
+    }
+    device.transforms.allocate_and_initialize(transforms);
+  }
+
   // glDepthFunc(GL_LESS);
   //
   shader.try_set("projection", camera.projection_matrix());
   shader.try_set("view", camera.view_matrix());
   shader.try_set("viewport", camera.viewport_matrix());
+  shader.try_set("transforms_count", mesh.bones.size());
   shader.use();
   //
-  glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
+  // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
+  glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
+                          0, trails);
 }
 
 void viewer::on_resize(int width, int height) {
