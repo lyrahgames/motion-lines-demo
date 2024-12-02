@@ -37,8 +37,8 @@ viewer::viewer(int width, int height) : opengl_window{width, height} {
   create_curve_shader();
 
   oit_init();
-  oit_resize(width, height);
   oit_create_shader();
+  oit_resize(width, height);
 }
 
 void viewer::create_shader() {
@@ -159,10 +159,27 @@ void main(){
   const auto fs = opengl::fragment_shader{R"##(
 #version 460 core
 
-// oit
 layout (binding = 0, offset = 0) uniform atomic_uint index_counter;
-layout (binding = 0, rgba32ui) uniform uimageBuffer list_buffer;
-layout (binding = 1, r32ui) uniform uimage2DRect head_pointer_image;
+
+struct fragment_node {
+  vec4 color;
+  float depth;
+  float time;
+  uint next;
+};
+
+layout (std430, binding = 3) writeonly buffer oit_fragment_lists {
+  fragment_node fragments[];
+};
+
+layout (std430, binding = 4) coherent buffer oit_fragment_heads {
+  uint heads[];
+};
+
+uniform uint max_fragments;
+
+uniform int width;
+uniform int height;
 
 uniform bool wireframe = false;
 uniform bool use_face_normal = false;
@@ -243,13 +260,16 @@ void main() {
 
   // oit
   uint index = atomicCounterIncrement(index_counter);
-  uint old_head = imageAtomicExchange(head_pointer_image, ivec2(gl_FragCoord.xy), index);
-  uvec4 item;
-  item.x = old_head;
-  item.y = packUnorm4x8(frag_color);
-  item.z = floatBitsToUint(gl_FragCoord.z);
-  item.w = 0;
-  imageStore(list_buffer, int(index), item);
+  if (index >= max_fragments) discard;
+  uint old_head = atomicExchange(heads[width * int(gl_FragCoord.y) + int(gl_FragCoord.x)], index);
+
+
+  fragment_node node;
+  node.color = frag_color;
+  node.depth = gl_FragCoord.z;
+  node.time = float(instance);
+  node.next = old_head;
+  fragments[index] = node;
 }
 )##"};
 
@@ -328,7 +348,7 @@ layout (location = 0) out vec4 frag_color;
 
 void main() {
   frag_color = line_color;
-  gl_FragDepth = gl_FragCoord.z - 0.5;
+  gl_FragDepth = gl_FragCoord.z;
 }
 )##"};
 
@@ -755,13 +775,13 @@ void viewer::render() {
   device.va.bind();
   device.faces.bind();
   //
-  // contours_shader.try_set("projection", camera.projection_matrix());
-  // contours_shader.try_set("view", camera.view_matrix());
-  // contours_shader.set("line_color", vec4{vec3{1.0f}, 1.0f});
-  // glLineWidth(2.5f);
-  // contours_shader.use();
-  // //
-  // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
+  contours_shader.try_set("projection", camera.projection_matrix());
+  contours_shader.try_set("view", camera.view_matrix());
+  contours_shader.set("line_color", vec4{vec3{0.2f}, 1.0f});
+  glLineWidth(2.5f);
+  contours_shader.use();
+  //
+  glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
 
   const size_t trails = 10;
   {
@@ -795,6 +815,7 @@ void viewer::render() {
   glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
                           0, trails);
 
+  // glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
   oit_shader.use();
   glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
@@ -1154,6 +1175,12 @@ void viewer::oit_init() {
                GL_DYNAMIC_COPY);
   //
   glGenBuffers(1, &fragment_storage_buffer);
+  //
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, oit_fragment_lists.id());
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, oit_fragment_lists.id());
+  //
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, oit_fragment_heads.id());
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, oit_fragment_heads.id());
 }
 
 void viewer::oit_resize(int width, int height) {
@@ -1174,6 +1201,18 @@ void viewer::oit_resize(int width, int height) {
   glBindBuffer(GL_TEXTURE_BUFFER, fragment_storage_buffer);
   glBufferData(GL_TEXTURE_BUFFER, 2 * width * height * sizeof(glm::vec4),
                nullptr, GL_DYNAMIC_COPY);
+
+  //
+  max_fragments = 32 * width * height;
+  oit_fragment_lists.allocate(max_fragments * 2 * sizeof(glm::vec4));
+  oit_fragment_heads.allocate(width * height * sizeof(GLuint));
+
+  oit_shader.try_set("width", oit_width);
+  oit_shader.try_set("height", oit_height);
+  oit_shader.try_set("max_fragments", max_fragments);
+  shader.try_set("width", oit_width);
+  shader.try_set("height", oit_height);
+  shader.try_set("max_fragments", max_fragments);
 }
 
 void viewer::oit_clear() {
@@ -1188,13 +1227,23 @@ void viewer::oit_clear() {
   glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 0, atomic_counter_buffer);
   const GLuint zero = 0;
   glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(zero), &zero);
+
+  //
+  GLuint* data =
+      (GLuint*)glMapNamedBuffer(oit_fragment_heads.id(), GL_WRITE_ONLY);
+  std::memset(data, 0xff, oit_width * oit_height * sizeof(GLuint));
+  glUnmapNamedBuffer(oit_fragment_heads.id());
 }
 
 void viewer::oit_create_shader() {
   const auto vs = opengl::vertex_shader{"#version 460 core\n",  //
                                         R"##(
-
-vec2 points[4] = {vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0)};
+const vec2 points[4] = {
+  vec2(-1.0, -1.0),
+  vec2(1.0, -1.0),
+  vec2(1.0, 1.0),
+  vec2(-1.0, 1.0)
+};
 
 void main() {
   gl_Position = vec4(points[gl_VertexID], 0.0, 1.0);
@@ -1204,20 +1253,90 @@ void main() {
   const auto fs = opengl::fragment_shader{R"##(
 #version 460 core
 
-uniform usampler2D head_pointer_image;
-uniform usamplerBuffer list_buffer;
+uniform int width;
+uniform int height;
+
+struct fragment_node {
+  vec4 color;
+  float depth;
+  float time;
+  uint next;
+};
+
+layout (std430, binding = 3) readonly buffer oit_fragment_lists {
+  fragment_node fragments[];
+};
+
+layout (std430, binding = 4) readonly buffer oit_fragment_heads {
+  uint heads[];
+};
 
 layout (location = 0) out vec4 frag_color;
 
+float colormap_red(float x) {
+    return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
+}
+
+float colormap_green(float x) {
+    return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
+}
+
+vec4 colormap(float x) {
+    float r = clamp(colormap_red(x), 0.0, 1.0);
+    float g = clamp(colormap_green(x), 0.0, 1.0);
+    float b = 1.0;
+    return vec4(r, g, b, 1.0);
+}
+
+fragment_node frags[256];
+
+bool compare(fragment_node x, fragment_node y){
+  if (x.time == y.time) return x.depth <= y.depth;
+  return x.time < y.time;
+}
+
 void main() {
-  frag_color = vec4(1.0, 0.0, 0.0, 1.0);
+  uint index = heads[int(gl_FragCoord.y) * width + int(gl_FragCoord.x)];
+  // uint count = 0;
+  // while (index != 0xffffffff && count < 256){
+  //   frags[count] = fragments[index];
+  //   index = frags[count].next;
+  //   ++count;
+  // }
 
-  uint p = texelFetch(head_pointer_image, ivec2(gl_FragCoord.xy), 0).x;
-  if (p == 0xffffffff) return;
+  // for (int i = 0; i < count; ++i){
+  //   for (int j = i + 1; j < count; ++j){
+  //     if (compare(frags[i], frags[j])){
+  //       fragment_node tmp = frags[i];
+  //       frags[i] = frags[j];
+  //       frags[j] = tmp;
+  //     }
+  //   }
+  // }
 
-  uvec4 item = texelFetch(list_buffer, int(p));
-  frag_color = unpackUnorm4x8(item.y) * vec4(0.5, 0.5, 1.0, 1.0);
-  gl_FragDepth = 0.0;
+  // frag_color = vec4(0.0);
+  // for (int i = 0; i < count; ++i){
+  //   frag_color = mix(frag_color, frags[i].color, frags[i].color.a);
+  // }
+
+  for (int i = 0; i < 10; ++i){
+    frags[i].color = vec4(0.0);
+    frags[i].depth = 1.0;
+  }
+
+  while (index != 0xffffffff){
+    fragment_node node = fragments[index];
+    index = node.next;
+
+    int t = int(node.time);
+    if (node.depth < frags[t].depth)
+      frags[t] = node;
+  }
+
+  frag_color = vec4(0.0);
+  for (int i = 1; i <= 10; ++i){
+    frag_color = mix(frag_color, frags[10-i].color, frags[10-i].color.a);
+  }
 }
 )##"};
 

@@ -80,6 +80,9 @@ class viewer : public opengl_window {
   GLuint fragment_storage_buffer;
   int oit_width, oit_height;
   opengl::shader_program oit_shader;
+  opengl::shader_storage_buffer oit_fragment_lists;
+  opengl::shader_storage_buffer oit_fragment_heads;
+  uint32 max_fragments;
 
  public:
   viewer(int width = 500, int height = 500);
