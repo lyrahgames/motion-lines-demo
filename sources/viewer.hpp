@@ -73,6 +73,14 @@ class viewer : public opengl_window {
   opengl::vertex_array samples_va{};
   opengl::vertex_buffer samples_data{};
 
+  // oit
+  GLuint head_pointer_texture;
+  GLuint head_pointer_initializer;
+  GLuint atomic_counter_buffer;
+  GLuint fragment_storage_buffer;
+  int oit_width, oit_height;
+  opengl::shader_program oit_shader;
+
  public:
   viewer(int width = 500, int height = 500);
   void run();
@@ -111,6 +119,11 @@ class viewer : public opengl_window {
   void select_animation(int id);
 
   void compute_animation_samples();
+
+  void oit_init();
+  void oit_resize(int width, int height);
+  void oit_clear();
+  void oit_create_shader();
 };
 
 }  // namespace demo

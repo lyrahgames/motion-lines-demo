@@ -35,6 +35,10 @@ viewer::viewer(int width, int height) : opengl_window{width, height} {
 
   create_shader();
   create_curve_shader();
+
+  oit_init();
+  oit_resize(width, height);
+  oit_create_shader();
 }
 
 void viewer::create_shader() {
@@ -155,6 +159,11 @@ void main(){
   const auto fs = opengl::fragment_shader{R"##(
 #version 460 core
 
+// oit
+layout (binding = 0, offset = 0) uniform atomic_uint index_counter;
+layout (binding = 0, rgba32ui) uniform uimageBuffer list_buffer;
+layout (binding = 1, r32ui) uniform uimage2DRect head_pointer_image;
+
 uniform bool wireframe = false;
 uniform bool use_face_normal = false;
 
@@ -164,7 +173,8 @@ in vec3 vnor;
 noperspective in vec3 edge_distance;
 flat in uint instance;
 
-layout (location = 0) out vec4 frag_color;
+// layout (location = 0) out
+vec4 frag_color;
 // layout (depth_unchanged) out float gl_FragDepth;
 
 float colormap_red(float x) {
@@ -228,7 +238,18 @@ void main() {
   else
     frag_color = light_color;
 
-  gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * instance / 10.0;
+  // gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * instance / 10.0;
+
+
+  // oit
+  uint index = atomicCounterIncrement(index_counter);
+  uint old_head = imageAtomicExchange(head_pointer_image, ivec2(gl_FragCoord.xy), index);
+  uvec4 item;
+  item.x = old_head;
+  item.y = packUnorm4x8(frag_color);
+  item.z = floatBitsToUint(gl_FragCoord.z);
+  item.w = 0;
+  imageStore(list_buffer, int(index), item);
 }
 )##"};
 
@@ -676,6 +697,8 @@ void viewer::update_view() {
 void viewer::render() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+  oit_clear();
+
   if (not mesh.animations.empty()) {
     const auto current = std::chrono::high_resolution_clock::now();
     const auto duration =
@@ -771,6 +794,9 @@ void viewer::render() {
   // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
   glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
                           0, trails);
+
+  oit_shader.use();
+  glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
 
 void viewer::on_resize(int width, int height) {
@@ -1115,6 +1141,107 @@ void viewer::compute_animation_samples() {
   // glEnableVertexAttribArray(1);
   // glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(float32), (void*)0);
   // samples_speed.allocate_and_initialize(motion_lines_speed);
+}
+
+void viewer::oit_init() {
+  glGenTextures(1, &head_pointer_texture);
+  //
+  glGenBuffers(1, &head_pointer_initializer);
+  //
+  glGenBuffers(1, &atomic_counter_buffer);
+  glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, atomic_counter_buffer);
+  glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(GLuint), nullptr,
+               GL_DYNAMIC_COPY);
+  //
+  glGenBuffers(1, &fragment_storage_buffer);
+}
+
+void viewer::oit_resize(int width, int height) {
+  oit_width = width;
+  oit_height = height;
+  //
+  glBindTexture(GL_TEXTURE_2D, head_pointer_texture);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, width, height, 0, GL_RED_INTEGER,
+               GL_UNSIGNED_INT, nullptr);
+  //
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, head_pointer_initializer);
+  glBufferData(GL_PIXEL_UNPACK_BUFFER, width * height * sizeof(GLuint), nullptr,
+               GL_STATIC_DRAW);
+  GLuint* data = (GLuint*)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
+  std::memset(data, 0xff, width * height * sizeof(GLuint));
+  glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+  //
+  glBindBuffer(GL_TEXTURE_BUFFER, fragment_storage_buffer);
+  glBufferData(GL_TEXTURE_BUFFER, 2 * width * height * sizeof(glm::vec4),
+               nullptr, GL_DYNAMIC_COPY);
+}
+
+void viewer::oit_clear() {
+  // head pointer reset
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, head_pointer_initializer);
+  glBindTexture(GL_TEXTURE_2D, head_pointer_texture);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, oit_width, oit_height, 0,
+               GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
+  //
+  glBindImageTexture(0, head_pointer_texture, 0, GL_FALSE, 0, GL_READ_WRITE,
+                     GL_R32UI);
+  glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 0, atomic_counter_buffer);
+  const GLuint zero = 0;
+  glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(zero), &zero);
+}
+
+void viewer::oit_create_shader() {
+  const auto vs = opengl::vertex_shader{"#version 460 core\n",  //
+                                        R"##(
+
+vec2 points[4] = {vec2(-1.0, -1.0), vec2(1.0, -1.0), vec2(1.0, 1.0), vec2(-1.0, 1.0)};
+
+void main() {
+  gl_Position = vec4(points[gl_VertexID], 0.0, 1.0);
+}
+)##"};
+
+  const auto fs = opengl::fragment_shader{R"##(
+#version 460 core
+
+uniform usampler2D head_pointer_image;
+uniform usamplerBuffer list_buffer;
+
+layout (location = 0) out vec4 frag_color;
+
+void main() {
+  frag_color = vec4(1.0, 0.0, 0.0, 1.0);
+
+  uint p = texelFetch(head_pointer_image, ivec2(gl_FragCoord.xy), 0).x;
+  if (p == 0xffffffff) return;
+
+  uvec4 item = texelFetch(list_buffer, int(p));
+  frag_color = unpackUnorm4x8(item.y) * vec4(0.5, 0.5, 1.0, 1.0);
+  gl_FragDepth = 0.0;
+}
+)##"};
+
+  if (!vs) {
+    log::error(vs.info_log());
+    quit();
+    return;
+  }
+
+  if (!fs) {
+    log::error(fs.info_log());
+    quit();
+    return;
+  }
+
+  oit_shader.attach(vs);
+  oit_shader.attach(fs);
+  oit_shader.link();
+
+  if (!oit_shader.linked()) {
+    log::error(oit_shader.info_log());
+    quit();
+    return;
+  }
 }
 
 }  // namespace demo
