@@ -81,6 +81,10 @@ class viewer : public opengl_window {
   opengl::shader_storage_buffer oit_fragment_heads;
   uint32 max_fragments;
 
+  opengl::shader_storage_buffer ssbo_vertices{};
+  opengl::shader_program ssbo_shader{};
+  opengl::shader_program pvp_motion_line_shader{};
+
  public:
   viewer(int width = 500, int height = 500);
   void run();
@@ -124,6 +128,10 @@ class viewer : public opengl_window {
   void oit_resize(int width, int height);
   void oit_clear();
   void oit_create_shader();
+
+  void create_ssbo_shader();
+  void init_pvp();
+  void create_pvp_motion_line_shader();
 };
 
 }  // namespace demo
