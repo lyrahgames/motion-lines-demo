@@ -74,10 +74,7 @@ class viewer : public opengl_window {
   opengl::vertex_buffer samples_data{};
 
   // oit
-  GLuint head_pointer_texture;
-  GLuint head_pointer_initializer;
   GLuint atomic_counter_buffer;
-  GLuint fragment_storage_buffer;
   int oit_width, oit_height;
   opengl::shader_program oit_shader;
   opengl::shader_storage_buffer oit_fragment_lists;

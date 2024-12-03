@@ -10,12 +10,12 @@ opengl_window::opengl_window(int width, int height)
              sf::Style::Default,
              sf::ContextSettings{
                  /*.depthBits = */ 24,
-                 /*.stencilBits = */ 8,
-                 /*.antialiasingLevel = */ 4,
+                 /*.stencilBits = */ 0,
+                 /*.antialiasingLevel = */ 2,
                  /*.majorVersion = */ 4,
                  /*.minorVersion = */ 6,
                  /*.attributeFlags = */
-                 sf::ContextSettings::Core | sf::ContextSettings::Debug,
+                 sf::ContextSettings::Core /*| sf::ContextSettings::Debug*/,
                  /*.sRgbCapable = */ false}) {
   glbinding::initialize(sf::Context::getFunction);
   window.setVerticalSyncEnabled(true);
@@ -24,9 +24,9 @@ opengl_window::opengl_window(int width, int height)
 
 viewer::viewer(int width, int height) : opengl_window{width, height} {
   glEnable(GL_DEPTH_TEST);
-  glEnable(GL_MULTISAMPLE);
-  glEnable(GL_POINT_SMOOTH);
-  glEnable(GL_POINT_SPRITE);
+  // glEnable(GL_MULTISAMPLE);
+  // glEnable(GL_POINT_SMOOTH);
+  // glEnable(GL_POINT_SPRITE);
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glPointSize(10.0f);
@@ -180,6 +180,7 @@ uniform uint max_fragments;
 
 uniform int width;
 uniform int height;
+uniform int time_samples;
 
 uniform bool wireframe = false;
 uniform bool use_face_normal = false;
@@ -194,22 +195,33 @@ flat in uint instance;
 vec4 frag_color;
 // layout (depth_unchanged) out float gl_FragDepth;
 
-float colormap_red(float x) {
-    return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
-}
+// float colormap_red(float x) {
+//     return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
+// }
 
-float colormap_green(float x) {
-    return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
-}
+// float colormap_green(float x) {
+//     return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
+// }
+
+// vec4 colormap(float x) {
+//     float r = clamp(colormap_red(x), 0.0, 1.0);
+//     float g = clamp(colormap_green(x), 0.0, 1.0);
+//     float b = 1.0;
+//     return vec4(r, g, b, 1.0);
+// }
 
 vec4 colormap(float x) {
-    float r = clamp(colormap_red(x), 0.0, 1.0);
-    float g = clamp(colormap_green(x), 0.0, 1.0);
-    float b = 1.0;
-    return vec4(r, g, b, 1.0);
+    float v = cos(133.0 * x) * 28.0 + 230.0 * x + 27.0;
+    if (v > 255.0) {
+        v = 510.0 - v;
+    }
+    v = v / 255.0;
+    return vec4(v, v, v, 1.0);
 }
 
 void main() {
+  if (!gl_FrontFacing) discard;
+
   // Compute distance from edges.
 
   float d = min(edge_distance.x, edge_distance.y);
@@ -239,7 +251,7 @@ void main() {
   else if (light <= 0.90) light = 0.80;
   else if (light <= 1.00) light = 1.00;
 
-  float weight = 1.0 - instance / 10.0;
+  float weight = 1.0 - instance / float(time_samples);
 
   alpha = weight;
 
@@ -255,7 +267,7 @@ void main() {
   else
     frag_color = light_color;
 
-  // gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * instance / 10.0;
+  // gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * instance / time_samples;
 
 
   // oit
@@ -740,35 +752,35 @@ void viewer::render() {
         (sample_last >= max_samples) ? (sample_last - max_samples) : (0);
     const auto sample_count = sample_last - sample_first;
 
-    // curve_shader.use();
-    // curve_shader.try_set("projection", camera.projection_matrix());
-    // curve_shader.try_set("view", camera.view_matrix());
-    // curve_shader.try_set("viewport", camera.viewport_matrix());
-    // curve_shader.try_set("line_width", 1.5f);
-    // // curve_shader.set("line_width", 1.5f);
-    // curve_shader.try_set("line_color", vec4{vec3{0.2f}, 1.0f});
-    // curve_shader.try_set("screen_width", float(camera.screen_width()));
-    // curve_shader.try_set("screen_height", float(camera.screen_height()));
-    // //
-    // curve_shader.try_set("global_time", time);
-    // curve_shader.try_set("max_stroke_length", samples.max_length);
-    // //
-    // samples_va.bind();
-    // samples_data.bind();
-    // if (sparse) {
-    //   for (auto vid : vids)
-    //     glDrawArrays(GL_LINE_STRIP, vid * samples.sample_count + sample_first,
-    //                  sample_count);
-    // } else {
-    //   for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
-    //     curve_shader.try_set(
-    //         "stroke_length",
-    //         samples.samples[(vid + 1) * samples.sample_count - 1].length);
-    //     glDrawArrays(GL_LINE_STRIP,
-    //                  vid * samples.sample_count /*+ sample_first*/,
-    //                  samples.sample_count);
-    //   }
-    // }
+    curve_shader.use();
+    curve_shader.try_set("projection", camera.projection_matrix());
+    curve_shader.try_set("view", camera.view_matrix());
+    curve_shader.try_set("viewport", camera.viewport_matrix());
+    curve_shader.try_set("line_width", 1.5f);
+    // curve_shader.set("line_width", 1.5f);
+    curve_shader.try_set("line_color", vec4{vec3{0.2f}, 1.0f});
+    curve_shader.try_set("screen_width", float(camera.screen_width()));
+    curve_shader.try_set("screen_height", float(camera.screen_height()));
+    //
+    curve_shader.try_set("global_time", time);
+    curve_shader.try_set("max_stroke_length", samples.max_length);
+    //
+    samples_va.bind();
+    samples_data.bind();
+    if (sparse) {
+      for (auto vid : vids)
+        glDrawArrays(GL_LINE_STRIP, vid * samples.sample_count + sample_first,
+                     sample_count);
+    } else {
+      for (size_t vid = 0; vid < mesh.vertices.size(); ++vid) {
+        curve_shader.try_set(
+            "stroke_length",
+            samples.samples[(vid + 1) * samples.sample_count - 1].length);
+        glDrawArrays(GL_LINE_STRIP,
+                     vid * samples.sample_count /*+ sample_first*/,
+                     samples.sample_count);
+      }
+    }
   }
 
   // glDepthFunc(GL_ALWAYS);
@@ -785,7 +797,7 @@ void viewer::render() {
 
   const size_t trails = 10;
   {
-    const float32 dt = 0.05f;
+    const float32 dt = 0.08f;
     std::vector<glm::mat4> transforms(trails * mesh.bones.size());
     load_animation_transforms(
         mesh, animation, time,
@@ -809,6 +821,7 @@ void viewer::render() {
   shader.try_set("view", camera.view_matrix());
   shader.try_set("viewport", camera.viewport_matrix());
   shader.try_set("transforms_count", mesh.bones.size());
+  shader.try_set("time_samples", int(trails));
   shader.use();
   //
   // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
@@ -816,6 +829,7 @@ void viewer::render() {
                           0, trails);
 
   // glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+  oit_shader.try_set("time_samples", int(trails));
   oit_shader.use();
   glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
@@ -823,6 +837,7 @@ void viewer::render() {
 void viewer::on_resize(int width, int height) {
   glViewport(0, 0, width, height);
   camera.set_screen_resolution(width, height);
+  oit_resize(width, height);
   view_should_update = true;
 }
 
@@ -999,7 +1014,7 @@ void viewer::load_scene_from_file(const std::filesystem::path& path) {
   //
   device.transforms.allocate_and_initialize(global_transforms(mesh));
 
-  compute_motion_lines();
+  // compute_motion_lines();
   compute_animation_samples();
 }
 
@@ -1087,7 +1102,7 @@ void viewer::select_animation(int id) {
   animation = id % mesh.animations.size();
   playing = true;
   time = 0.0f;
-  compute_motion_lines();
+  // compute_motion_lines();
   compute_animation_samples();
 }
 
@@ -1165,16 +1180,10 @@ void viewer::compute_animation_samples() {
 }
 
 void viewer::oit_init() {
-  glGenTextures(1, &head_pointer_texture);
-  //
-  glGenBuffers(1, &head_pointer_initializer);
-  //
   glGenBuffers(1, &atomic_counter_buffer);
   glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, atomic_counter_buffer);
   glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(GLuint), nullptr,
                GL_DYNAMIC_COPY);
-  //
-  glGenBuffers(1, &fragment_storage_buffer);
   //
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, oit_fragment_lists.id());
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, oit_fragment_lists.id());
@@ -1186,22 +1195,6 @@ void viewer::oit_init() {
 void viewer::oit_resize(int width, int height) {
   oit_width = width;
   oit_height = height;
-  //
-  glBindTexture(GL_TEXTURE_2D, head_pointer_texture);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, width, height, 0, GL_RED_INTEGER,
-               GL_UNSIGNED_INT, nullptr);
-  //
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, head_pointer_initializer);
-  glBufferData(GL_PIXEL_UNPACK_BUFFER, width * height * sizeof(GLuint), nullptr,
-               GL_STATIC_DRAW);
-  GLuint* data = (GLuint*)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
-  std::memset(data, 0xff, width * height * sizeof(GLuint));
-  glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
-  //
-  glBindBuffer(GL_TEXTURE_BUFFER, fragment_storage_buffer);
-  glBufferData(GL_TEXTURE_BUFFER, 2 * width * height * sizeof(glm::vec4),
-               nullptr, GL_DYNAMIC_COPY);
-
   //
   max_fragments = 32 * width * height;
   oit_fragment_lists.allocate(max_fragments * 2 * sizeof(glm::vec4));
@@ -1216,18 +1209,9 @@ void viewer::oit_resize(int width, int height) {
 }
 
 void viewer::oit_clear() {
-  // head pointer reset
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, head_pointer_initializer);
-  glBindTexture(GL_TEXTURE_2D, head_pointer_texture);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, oit_width, oit_height, 0,
-               GL_RED_INTEGER, GL_UNSIGNED_INT, nullptr);
-  //
-  glBindImageTexture(0, head_pointer_texture, 0, GL_FALSE, 0, GL_READ_WRITE,
-                     GL_R32UI);
   glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 0, atomic_counter_buffer);
   const GLuint zero = 0;
   glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(zero), &zero);
-
   //
   GLuint* data =
       (GLuint*)glMapNamedBuffer(oit_fragment_heads.id(), GL_WRITE_ONLY);
@@ -1255,6 +1239,7 @@ void main() {
 
 uniform int width;
 uniform int height;
+uniform int time_samples;
 
 struct fragment_node {
   vec4 color;
@@ -1297,46 +1282,47 @@ bool compare(fragment_node x, fragment_node y){
 
 void main() {
   uint index = heads[int(gl_FragCoord.y) * width + int(gl_FragCoord.x)];
-  // uint count = 0;
-  // while (index != 0xffffffff && count < 256){
-  //   frags[count] = fragments[index];
-  //   index = frags[count].next;
-  //   ++count;
-  // }
 
-  // for (int i = 0; i < count; ++i){
-  //   for (int j = i + 1; j < count; ++j){
-  //     if (compare(frags[i], frags[j])){
-  //       fragment_node tmp = frags[i];
-  //       frags[i] = frags[j];
-  //       frags[j] = tmp;
-  //     }
-  //   }
-  // }
-
-  // frag_color = vec4(0.0);
-  // for (int i = 0; i < count; ++i){
-  //   frag_color = mix(frag_color, frags[i].color, frags[i].color.a);
-  // }
-
-  for (int i = 0; i < 10; ++i){
-    frags[i].color = vec4(0.0);
-    frags[i].depth = 1.0;
+  uint count = 0;
+  while (index != 0xffffffff && count < 256){
+    frags[count] = fragments[index];
+    index = frags[count].next;
+    ++count;
   }
 
-  while (index != 0xffffffff){
-    fragment_node node = fragments[index];
-    index = node.next;
-
-    int t = int(node.time);
-    if (node.depth < frags[t].depth)
-      frags[t] = node;
+  for (int i = 0; i < count; ++i){
+    for (int j = i + 1; j < count; ++j){
+      if (compare(frags[i], frags[j])){
+        fragment_node tmp = frags[i];
+        frags[i] = frags[j];
+        frags[j] = tmp;
+      }
+    }
   }
 
   frag_color = vec4(0.0);
-  for (int i = 1; i <= 10; ++i){
-    frag_color = mix(frag_color, frags[10-i].color, frags[10-i].color.a);
+  for (int i = 0; i < count; ++i){
+    frag_color = mix(frag_color, frags[i].color, frags[i].color.a);
   }
+
+  // for (int i = 0; i < time_samples; ++i){
+  //   frags[i].color = vec4(0.0);
+  //   frags[i].depth = 1.0;
+  // }
+
+  // while (index != 0xffffffff){
+  //   fragment_node node = fragments[index];
+  //   index = node.next;
+
+  //   int t = int(node.time);
+  //   if (node.depth < frags[t].depth)
+  //     frags[t] = node;
+  // }
+
+  // frag_color = vec4(0.0);
+  // for (int i = 1; i <= time_samples; ++i){
+  //   frag_color = mix(frag_color, frags[time_samples-i].color, frags[time_samples-i].color.a);
+  // }
 }
 )##"};
 
