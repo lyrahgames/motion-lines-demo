@@ -30,7 +30,7 @@ viewer::viewer(int width, int height) : opengl_window{width, height} {
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glPointSize(10.0f);
-  glLineWidth(2.5f);
+  glLineWidth(0.5f);
   glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
   create_shader();
@@ -735,10 +735,11 @@ void viewer::render() {
 
   oit_clear();
 
+  const auto duration =
+      mesh.animations[animation].duration / mesh.animations[animation].ticks;
+
   if (not mesh.animations.empty()) {
     const auto current = std::chrono::high_resolution_clock::now();
-    const auto duration =
-        mesh.animations[animation].duration / mesh.animations[animation].ticks;
 
     if (playing) {
       time = std::fmod(
@@ -787,7 +788,6 @@ void viewer::render() {
     // }
   }
 
-  // glDepthFunc(GL_ALWAYS);
   device.va.bind();
   device.faces.bind();
   //
@@ -800,8 +800,11 @@ void viewer::render() {
   // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
 
   const size_t trails = 50;
+  const float32 dt = 0.01f;
+  const auto T = trails * dt;
   {
-    const float32 dt = 0.01f;
+    std::vector<float32> times{time};
+
     std::vector<glm::mat4> transforms(trails * mesh.bones.size());
     load_animation_transforms(
         mesh, animation, time,
@@ -809,7 +812,10 @@ void viewer::render() {
     for (size_t i = 1; i < trails; ++i) {
       const auto t =
           std::clamp(std::floor((time - (i - 1) * dt) / dt) * dt, 0.0f, time);
+      // std::clamp(std::floor((time - i * dt) / dt) * dt, 0.0f, time);
       // std::clamp(time - i * dt, 0.0f, time);
+      times.push_back(t);
+
       const auto first = i * mesh.bones.size();
       const auto last = (i + 1) * mesh.bones.size();
       auto view =
@@ -817,6 +823,8 @@ void viewer::render() {
       load_animation_transforms(mesh, animation, t, view);
     }
     device.transforms.allocate_and_initialize(transforms);
+
+    pvp_time_samples.allocate_and_initialize(times);
   }
 
   // glDepthFunc(GL_LESS);
@@ -840,10 +848,13 @@ void viewer::render() {
   ssbo_shader.try_set("width", oit_width);
   ssbo_shader.try_set("height", oit_height);
   ssbo_shader.try_set("max_fragments", max_fragments);
+  ssbo_shader.try_set("global_time", time);
+  ssbo_shader.try_set("duration", T);
   ssbo_shader.use();
   //
-  glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
-                          0, /*trails*/ 1);
+  // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
+  // glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
+  //                         0, trails);
 
   pvp_motion_line_shader.try_set("projection", camera.projection_matrix());
   pvp_motion_line_shader.try_set("view", camera.view_matrix());
@@ -853,13 +864,17 @@ void viewer::render() {
   pvp_motion_line_shader.try_set("width", oit_width);
   pvp_motion_line_shader.try_set("height", oit_height);
   pvp_motion_line_shader.try_set("max_fragments", max_fragments);
+  pvp_motion_line_shader.try_set("global_time", time);
+  pvp_motion_line_shader.try_set("duration", T);
   pvp_motion_line_shader.use();
   //
   glDrawArraysInstanced(GL_LINE_STRIP, 0, trails, mesh.vertices.size());
 
   // glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+  oit_shader.try_set("global_time", time);
   oit_shader.try_set("time_samples", int(trails));
   oit_shader.use();
+  // glDepthFunc(GL_ALWAYS);
   glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
 
@@ -1271,6 +1286,7 @@ void main() {
 uniform int width;
 uniform int height;
 uniform int time_samples;
+uniform float global_time;
 
 struct fragment_node {
   vec4 color;
@@ -1289,71 +1305,66 @@ layout (std430, binding = 4) readonly buffer oit_fragment_heads {
 
 layout (location = 0) out vec4 frag_color;
 
-float colormap_red(float x) {
-    return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
-}
-
-float colormap_green(float x) {
-    return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
-}
-
-vec4 colormap(float x) {
-    float r = clamp(colormap_red(x), 0.0, 1.0);
-    float g = clamp(colormap_green(x), 0.0, 1.0);
-    float b = 1.0;
-    return vec4(r, g, b, 1.0);
-}
-
 fragment_node frags[256];
 
 bool compare(fragment_node x, fragment_node y){
-  if (x.time == y.time) return x.depth <= y.depth;
-  return x.time < y.time;
+  if (abs(x.time - y.time) < 0.001)
+    return x.depth > y.depth;
+  return x.time <= y.time;
 }
 
 void main() {
   uint index = heads[int(gl_FragCoord.y) * width + int(gl_FragCoord.x)];
 
-  // uint count = 0;
-  // while (index != 0xffffffff && count < 256){
-  //   frags[count] = fragments[index];
-  //   index = frags[count].next;
-  //   ++count;
-  // }
+  uint count = 0;
+  while (index != 0xffffffff && count < 256){
+    frags[count] = fragments[index];
+    index = frags[count].next;
+    ++count;
+  }
+  if (count == 0) discard;
 
-  // for (int i = 0; i < count; ++i){
-  //   for (int j = i + 1; j < count; ++j){
-  //     if (compare(frags[i], frags[j])){
-  //       fragment_node tmp = frags[i];
-  //       frags[i] = frags[j];
-  //       frags[j] = tmp;
-  //     }
-  //   }
-  // }
+  fragment_node tmp;
+  for (int i = 0; i < count; ++i){
+    for (int j = i + 1; j < count; ++j){
+      if (compare(frags[i], frags[j])){
+      // if (frags[i].depth > frags[j].depth){
+        tmp = frags[i];
+        frags[i] = frags[j];
+        frags[j] = tmp;
+      }
+    }
+  }
+
+  frag_color = frags[0].color;
 
   // frag_color = vec4(0.0);
+  // // float t = frags[0].time;
+  // // vec4 color = vec4(0.0);
   // for (int i = 0; i < count; ++i){
+  //   // if (frags[i].time == t)
+  //   //   color = color + frags[i].color;
   //   frag_color = mix(frag_color, frags[i].color, frags[i].color.a);
   // }
 
-  for (int i = 0; i < time_samples; ++i){
-    frags[i].color = vec4(0.0);
-    frags[i].depth = 1.0;
-  }
+  // for (int i = 0; i < time_samples; ++i){
+  //   frags[i].color = vec4(0.0);
+  //   frags[i].depth = 1.0;
+  // }
 
-  while (index != 0xffffffff){
-    fragment_node node = fragments[index];
-    index = node.next;
+  // while (index != 0xffffffff){
+  //   fragment_node node = fragments[index];
+  //   index = node.next;
 
-    int t = int(node.time);
-    if (node.depth < frags[t].depth)
-      frags[t] = node;
-  }
+  //   int t = int(node.time);
+  //   if (node.depth < frags[t].depth)
+  //     frags[t] = node;
+  // }
 
-  frag_color = vec4(0.0);
-  for (int i = 1; i <= time_samples; ++i){
-    frag_color = mix(frag_color, frags[time_samples-i].color, frags[time_samples-i].color.a);
-  }
+  // frag_color = vec4(0.0);
+  // for (int i = 1; i <= time_samples; ++i){
+  //   frag_color = mix(frag_color, frags[time_samples-i].color, frags[time_samples-i].color.a);
+  // }
 }
 )##"};
 
@@ -1412,8 +1423,12 @@ layout (std430, binding = 2) readonly buffer bone_transforms {
   mat4 transforms[];
 };
 
+layout (std430, binding = 6) readonly buffer time_samples {
+  float times[];
+};
+
 out vec3 normal;
-flat out uint instance;
+out float time;
 
 void main() {
   uint offset = gl_InstanceID * transforms_count;
@@ -1426,7 +1441,7 @@ void main() {
 
   gl_Position = projection * mv * vec4(vertices[gl_VertexID].position[0], vertices[gl_VertexID].position[1], vertices[gl_VertexID].position[2], 1.0);
   normal = vec3(nmv * vec4(vertices[gl_VertexID].normal[0], vertices[gl_VertexID].normal[1], vertices[gl_VertexID].normal[2], 0.0));
-  instance = gl_InstanceID;
+  time = times[gl_InstanceID];
 }
 )##"};
 
@@ -1456,16 +1471,25 @@ uniform int width;
 uniform int height;
 uniform int time_samples;
 
+uniform float global_time;
+uniform float duration;
+
 in vec3 normal;
-flat in uint instance;
+in float time;
+
+float colormap_red(float x) {
+    return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
+}
+
+float colormap_green(float x) {
+    return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
+}
 
 vec4 colormap(float x) {
-    float v = cos(133.0 * x) * 28.0 + 230.0 * x + 27.0;
-    if (v > 255.0) {
-        v = 510.0 - v;
-    }
-    v = v / 255.0;
-    return vec4(v, v, v, 1.0);
+    float r = clamp(colormap_red(x), 0.0, 1.0);
+    float g = clamp(colormap_green(x), 0.0, 1.0);
+    float b = 1.0;
+    return vec4(r, g, b, 1.0);
 }
 
 void main() {
@@ -1480,10 +1504,11 @@ void main() {
   else if (light <= 0.90) light = 0.80;
   else if (light <= 1.00) light = 1.00;
 
-  const float weight = 1.0 - instance / float(time_samples);
-  vec4 color = vec4(vec3(light), weight);
-  if (instance > 0)
-    color = color * colormap(weight);
+  const float weight = 1.0 - (global_time - time) / duration;
+  vec4 color = vec4(vec3(light), 1.0);
+
+  if (abs(time - global_time) > 0.001)
+  color = color * colormap(weight);
 
   const uint index = atomicCounterIncrement(index_counter);
   if (index >= max_fragments) discard;
@@ -1491,7 +1516,7 @@ void main() {
   fragment_node node;
   node.color = color;
   node.depth = gl_FragCoord.z;
-  node.time = float(instance);
+  node.time = time;
   node.next = head;
   fragments[index] = node;
 }
@@ -1523,6 +1548,9 @@ void main() {
 void viewer::init_pvp() {
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_vertices.id());
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ssbo_vertices.id());
+
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, pvp_time_samples.id());
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, pvp_time_samples.id());
 }
 
 void viewer::create_pvp_motion_line_shader() {
@@ -1557,8 +1585,12 @@ layout (std430, binding = 2) readonly buffer bone_transforms {
   mat4 transforms[];
 };
 
+layout (std430, binding = 6) readonly buffer time_samples {
+  float times[];
+};
+
 out vec3 normal;
-flat out uint instance;
+out float time;
 
 void main() {
   uint offset = gl_VertexID * transforms_count;
@@ -1571,7 +1603,7 @@ void main() {
 
   gl_Position = projection * mv * vec4(vertices[gl_InstanceID].position[0], vertices[gl_InstanceID].position[1], vertices[gl_InstanceID].position[2], 1.0);
   normal = vec3(nmv * vec4(vertices[gl_InstanceID].normal[0], vertices[gl_InstanceID].normal[1], vertices[gl_InstanceID].normal[2], 0.0));
-  instance = gl_VertexID;
+  time = times[gl_VertexID];
 }
 )##"};
 
@@ -1600,33 +1632,35 @@ uniform uint max_fragments;
 uniform int width;
 uniform int height;
 uniform int time_samples;
+uniform float duration;
+uniform float global_time;
 
 in vec3 normal;
-flat in uint instance;
+in float time;
 
-// float colormap_red(float x) {
-//     return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
-// }
+float colormap_red(float x) {
+    return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
+}
 
-// float colormap_green(float x) {
-//     return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
-// }
-
-// vec4 colormap(float x) {
-//     float r = clamp(colormap_red(x), 0.0, 1.0);
-//     float g = clamp(colormap_green(x), 0.0, 1.0);
-//     float b = 1.0;
-//     return vec4(r, g, b, 1.0);
-// }
+float colormap_green(float x) {
+    return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
+}
 
 vec4 colormap(float x) {
-    float v = cos(133.0 * x) * 28.0 + 230.0 * x + 27.0;
-    if (v > 255.0) {
-        v = 510.0 - v;
-    }
-    v = v / 255.0;
-    return vec4(v, v, v, 1.0);
+    float r = clamp(colormap_red(x), 0.0, 1.0);
+    float g = clamp(colormap_green(x), 0.0, 1.0);
+    float b = 1.0;
+    return vec4(r, g, b, 1.0);
 }
+
+// vec4 colormap(float x) {
+//     float v = cos(133.0 * x) * 28.0 + 230.0 * x + 27.0;
+//     if (v > 255.0) {
+//         v = 510.0 - v;
+//     }
+//     v = v / 255.0;
+//     return vec4(v, v, v, 1.0);
+// }
 
 void main() {
   if (!gl_FrontFacing) discard;
@@ -1640,10 +1674,9 @@ void main() {
   // else if (light <= 0.90) light = 0.80;
   // else if (light <= 1.00) light = 1.00;
 
-  const float weight = 1.0 - instance / float(time_samples);
-  vec4 color = vec4(vec3(0.2), weight);
-  if (instance > 0)
-    color = color * colormap(weight);
+  const float weight = 1.0 - (global_time - time) / duration;
+  vec4 color = vec4(vec3(0.2), 1.0);
+  color = color * colormap(weight);
 
   const uint index = atomicCounterIncrement(index_counter);
   if (index >= max_fragments) discard;
@@ -1651,7 +1684,7 @@ void main() {
   fragment_node node;
   node.color = color;
   node.depth = gl_FragCoord.z;
-  node.time = 1;
+  node.time = time;
   node.next = head;
   fragments[index] = node;
 }

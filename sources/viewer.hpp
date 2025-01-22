@@ -85,6 +85,8 @@ class viewer : public opengl_window {
   opengl::shader_program ssbo_shader{};
   opengl::shader_program pvp_motion_line_shader{};
 
+  opengl::shader_storage_buffer pvp_time_samples{};
+
  public:
   viewer(int width = 500, int height = 500);
   void run();
