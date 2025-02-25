@@ -33,11 +33,11 @@ class viewer : public opengl_window {
   float altitude = 0;
   float azimuth = 0;
   // Perspective camera
-  struct camera camera {};
+  struct camera camera{};
   bool view_should_update = false;
 
   //
-  struct scene scene {};
+  struct scene scene{};
   skinned_mesh mesh{};
   float bounding_radius;
   std::chrono::time_point<std::chrono::high_resolution_clock> start =
@@ -84,6 +84,13 @@ class viewer : public opengl_window {
   opengl::shader_storage_buffer ssbo_vertices{};
   opengl::shader_program ssbo_shader{};
   opengl::shader_program pvp_motion_line_shader{};
+
+  opengl::shader_program surface_shader{};
+  bool wireframe_rendering = false;
+  bool flat_rendering = false;
+  opengl::shader_program motion_trails_shader{};
+  opengl::shader_program motion_lines_shader{};
+  opengl::shader_storage_buffer ssbo_vids{};
 
  public:
   viewer(int width = 500, int height = 500);
@@ -132,6 +139,10 @@ class viewer : public opengl_window {
   void create_ssbo_shader();
   void init_pvp();
   void create_pvp_motion_line_shader();
+
+  void create_surface_shader();
+  void create_motion_trails_shader();
+  void create_motion_lines_shader();
 };
 
 }  // namespace demo

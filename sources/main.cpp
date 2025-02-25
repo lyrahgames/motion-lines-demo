@@ -5,7 +5,7 @@ int main(int argc, char* argv[]) {
 
   if (argc > 1) {
     viewer.load_scene_from_file(argv[1]);
-    // viewer.select_maxmin_vids();
+    viewer.select_maxmin_vids();
   }
   if (argc > 2) viewer.load_vids_from_file(argv[2]);
 

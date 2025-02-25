@@ -43,6 +43,10 @@ viewer::viewer(int width, int height) : opengl_window{width, height} {
   create_ssbo_shader();
   init_pvp();
   create_pvp_motion_line_shader();
+
+  create_surface_shader();
+  create_motion_trails_shader();
+  create_motion_lines_shader();
 }
 
 void viewer::create_shader() {
@@ -669,6 +673,16 @@ void viewer::process(const sf::Event event) {
         case sf::Keyboard::S:
           sparse = !sparse;
           break;
+
+        case sf::Keyboard::W:
+          wireframe_rendering = !wireframe_rendering;
+          surface_shader.set("wireframe", wireframe_rendering);
+          break;
+
+        case sf::Keyboard::F:
+          flat_rendering = !flat_rendering;
+          surface_shader.set("use_face_normal", flat_rendering);
+          break;
       }
       break;
 
@@ -733,7 +747,7 @@ void viewer::update_view() {
 void viewer::render() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  oit_clear();
+  // oit_clear();
 
   if (not mesh.animations.empty()) {
     const auto current = std::chrono::high_resolution_clock::now();
@@ -799,14 +813,14 @@ void viewer::render() {
   //
   // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
 
-  const size_t trails = 50;
+  const size_t time_samples = 100;
   {
     const float32 dt = 0.01f;
-    std::vector<glm::mat4> transforms(trails * mesh.bones.size());
+    std::vector<glm::mat4> transforms(time_samples * mesh.bones.size());
     load_animation_transforms(
         mesh, animation, time,
         std::span{transforms.data(), transforms.data() + mesh.bones.size()});
-    for (size_t i = 1; i < trails; ++i) {
+    for (size_t i = 1; i < time_samples; ++i) {
       const auto t =
           std::clamp(std::floor((time - (i - 1) * dt) / dt) * dt, 0.0f, time);
       // std::clamp(time - i * dt, 0.0f, time);
@@ -819,48 +833,78 @@ void viewer::render() {
     device.transforms.allocate_and_initialize(transforms);
   }
 
-  // glDepthFunc(GL_LESS);
-  //
+  glDepthFunc(GL_LESS);
+
   // shader.try_set("projection", camera.projection_matrix());
   // shader.try_set("view", camera.view_matrix());
   // shader.try_set("viewport", camera.viewport_matrix());
   // shader.try_set("transforms_count", mesh.bones.size());
-  // shader.try_set("time_samples", int(trails));
+  // shader.try_set("time_samples", int(time_samples));
   // shader.use();
   // //
   // // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
   // glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
-  // 0, trails);
+  //                         0, time_samples);
 
-  ssbo_shader.try_set("projection", camera.projection_matrix());
-  ssbo_shader.try_set("view", camera.view_matrix());
-  ssbo_shader.try_set("viewport", camera.viewport_matrix());
-  ssbo_shader.try_set("transforms_count", mesh.bones.size());
-  ssbo_shader.try_set("time_samples", int(trails));
-  ssbo_shader.try_set("width", oit_width);
-  ssbo_shader.try_set("height", oit_height);
-  ssbo_shader.try_set("max_fragments", max_fragments);
-  ssbo_shader.use();
+  // ssbo_shader.try_set("projection", camera.projection_matrix());
+  // ssbo_shader.try_set("view", camera.view_matrix());
+  // ssbo_shader.try_set("viewport", camera.viewport_matrix());
+  // ssbo_shader.try_set("transforms_count", mesh.bones.size());
+  // ssbo_shader.try_set("time_samples", int(time_samples));
+  // ssbo_shader.try_set("width", oit_width);
+  // ssbo_shader.try_set("height", oit_height);
+  // ssbo_shader.try_set("max_fragments", max_fragments);
+  // ssbo_shader.use();
+  // //
+  // glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
+  //                         0, /*time_samples*/ 1);
+
+  // pvp_motion_line_shader.try_set("projection", camera.projection_matrix());
+  // pvp_motion_line_shader.try_set("view", camera.view_matrix());
+  // pvp_motion_line_shader.try_set("viewport", camera.viewport_matrix());
+  // pvp_motion_line_shader.try_set("transforms_count", mesh.bones.size());
+  // pvp_motion_line_shader.try_set("time_samples", int(time_samples));
+  // pvp_motion_line_shader.try_set("width", oit_width);
+  // pvp_motion_line_shader.try_set("height", oit_height);
+  // pvp_motion_line_shader.try_set("max_fragments", max_fragments);
+  // pvp_motion_line_shader.use();
+  // //
+  // glDrawArraysInstanced(GL_LINE_STRIP, 0, time_samples, mesh.vertices.size());
+
+  // // glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+  // oit_shader.try_set("time_samples", int(time_samples));
+  // oit_shader.use();
+  // glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+  surface_shader.try_set("projection", camera.projection_matrix());
+  surface_shader.try_set("view", camera.view_matrix());
+  surface_shader.try_set("viewport", camera.viewport_matrix());
+  surface_shader.try_set("transforms_count", mesh.bones.size());
+  surface_shader.try_set("time_samples", int(time_samples));
+  surface_shader.use();
   //
-  glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
-                          0, /*trails*/ 1);
+  glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
 
-  pvp_motion_line_shader.try_set("projection", camera.projection_matrix());
-  pvp_motion_line_shader.try_set("view", camera.view_matrix());
-  pvp_motion_line_shader.try_set("viewport", camera.viewport_matrix());
-  pvp_motion_line_shader.try_set("transforms_count", mesh.bones.size());
-  pvp_motion_line_shader.try_set("time_samples", int(trails));
-  pvp_motion_line_shader.try_set("width", oit_width);
-  pvp_motion_line_shader.try_set("height", oit_height);
-  pvp_motion_line_shader.try_set("max_fragments", max_fragments);
-  pvp_motion_line_shader.use();
+  motion_trails_shader.try_set("projection", camera.projection_matrix());
+  motion_trails_shader.try_set("view", camera.view_matrix());
+  motion_trails_shader.try_set("viewport", camera.viewport_matrix());
+  motion_trails_shader.try_set("transforms_count", mesh.bones.size());
+  motion_trails_shader.try_set("time_samples", int(time_samples));
+  motion_trails_shader.set("trails", int(10));
+  motion_trails_shader.use();
   //
-  glDrawArraysInstanced(GL_LINE_STRIP, 0, trails, mesh.vertices.size());
+  // glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
+  // 0, time_samples);
 
-  // glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-  oit_shader.try_set("time_samples", int(trails));
-  oit_shader.use();
-  glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+  motion_lines_shader.try_set("projection", camera.projection_matrix());
+  motion_lines_shader.try_set("view", camera.view_matrix());
+  motion_lines_shader.try_set("viewport", camera.viewport_matrix());
+  motion_lines_shader.try_set("transforms_count", mesh.bones.size());
+  motion_lines_shader.try_set("time_samples", int(time_samples));
+  motion_lines_shader.try_set("line_width", 30.0f);
+  motion_lines_shader.use();
+  //
+  glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 2 * time_samples, vids.size());
 }
 
 void viewer::on_resize(int width, int height) {
@@ -1170,10 +1214,12 @@ void viewer::select_maxmin_vids(size_t count) {
     }
     vids.push_back(max_vid);
   }
+
+  ssbo_vids.allocate_and_initialize(vids);
 }
 
 void viewer::select_maxmin_vids() {
-  select_maxmin_vids(mesh.vertices.size() * 0.01f);
+  select_maxmin_vids(mesh.vertices.size() * 0.001f);
 }
 
 void viewer::compute_animation_samples() {
@@ -1523,6 +1569,8 @@ void main() {
 void viewer::init_pvp() {
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_vertices.id());
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, ssbo_vertices.id());
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_vids.id());
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, ssbo_vids.id());
 }
 
 void viewer::create_pvp_motion_line_shader() {
@@ -1675,6 +1723,511 @@ void main() {
 
   if (!pvp_motion_line_shader.linked()) {
     log::error(pvp_motion_line_shader.info_log());
+    quit();
+    return;
+  }
+}
+
+void viewer::create_surface_shader() {
+  const auto vs = opengl::vertex_shader{"#version 460 core\n",  //
+                                        R"##(
+uniform mat4 projection;
+uniform mat4 view;
+
+uniform uint transforms_count;
+
+layout (location = 0) in vec3 p;
+layout (location = 1) in vec3 n;
+
+layout (std430, binding = 0) readonly buffer bone_weight_offsets {
+  uint offsets[];
+};
+struct bone_weight {
+  uint bid;
+  float weight;
+};
+layout (std430, binding = 1) readonly buffer bone_weight_data {
+  bone_weight weights[];
+};
+layout (std430, binding = 2) readonly buffer bone_transforms {
+  mat4 transforms[];
+};
+
+out vec3 position;
+out vec3 normal;
+
+flat out uint id;
+
+void main() {
+  uint offset = gl_InstanceID * transforms_count;
+  mat4 model = mat4(0.0);
+  for (uint i = offsets[gl_VertexID]; i < offsets[gl_VertexID + 1]; ++i)
+    model += weights[i].weight * transforms[offset + weights[i].bid];
+
+  gl_Position = projection * view * model * vec4(p, 1.0);
+
+  position = vec3(view * model * vec4(p, 1.0));
+  normal = vec3(transpose(inverse(view * model)) * vec4(n, 0.0));
+
+  id = gl_InstanceID;
+}
+)##"};
+
+  const auto gs = opengl::geometry_shader{R"##(
+#version 460 core
+
+uniform mat4 view;
+uniform mat4 viewport;
+
+layout (triangles) in;
+layout (triangle_strip, max_vertices = 3) out;
+
+in vec3 position[];
+in vec3 normal[];
+flat in uint id[];
+
+out vec3 pos;
+out vec3 nor;
+out vec3 vnor;
+noperspective out vec3 edge_distance;
+flat out uint instance;
+
+void main(){
+  vec3 p0 = vec3(viewport * (gl_in[0].gl_Position /
+                             gl_in[0].gl_Position.w));
+  vec3 p1 = vec3(viewport * (gl_in[1].gl_Position /
+                             gl_in[1].gl_Position.w));
+  vec3 p2 = vec3(viewport * (gl_in[2].gl_Position /
+                             gl_in[2].gl_Position.w));
+
+  float a = length(p1 - p2);
+  float b = length(p2 - p0);
+  float c = length(p1 - p0);
+
+  vec3 n = normalize(cross(gl_in[1].gl_Position.xyz - gl_in[0].gl_Position.xyz, gl_in[2].gl_Position.xyz - gl_in[0].gl_Position.xyz));
+
+  float alpha = acos((b * b + c * c - a * a) / (2.0 * b * c));
+  float beta  = acos((a * a + c * c - b * b) / (2.0 * a * c));
+
+  float ha = abs(c * sin(beta));
+  float hb = abs(c * sin(alpha));
+  float hc = abs(b * sin(alpha));
+
+  gl_PrimitiveID = gl_PrimitiveIDIn;
+
+  edge_distance = vec3(ha, 0, 0);
+  nor = n;
+  vnor = normal[0];
+  pos = position[0];
+  gl_Position = gl_in[0].gl_Position;
+  instance = id[0];
+  EmitVertex();
+
+  edge_distance = vec3(0, hb, 0);
+  nor = n;
+  vnor = normal[1];
+  pos = position[1];
+  gl_Position = gl_in[1].gl_Position;
+  instance = id[1];
+  EmitVertex();
+
+  edge_distance = vec3(0, 0, hc);
+  nor = n;
+  vnor = normal[2];
+  pos = position[2];
+  gl_Position = gl_in[2].gl_Position;
+  instance = id[2];
+  EmitVertex();
+
+  EndPrimitive();
+}
+)##"};
+
+  const auto fs = opengl::fragment_shader{R"##(
+#version 460 core
+
+uniform int width;
+uniform int height;
+uniform int time_samples;
+
+uniform bool wireframe = false;
+uniform bool use_face_normal = false;
+
+in vec3 pos;
+in vec3 nor;
+in vec3 vnor;
+noperspective in vec3 edge_distance;
+flat in uint instance;
+
+layout (location = 0) out vec4 frag_color;
+
+vec4 colormap(float x) {
+    float v = cos(133.0 * x) * 28.0 + 230.0 * x + 27.0;
+    if (v > 255.0) {
+        v = 510.0 - v;
+    }
+    v = v / 255.0;
+    return vec4(v, v, v, 1.0);
+}
+
+void main() {
+
+  // Compute distance from edges.
+  float d = min(edge_distance.x, edge_distance.y);
+  d = min(d, edge_distance.z);
+  float line_width = 0.01;
+  float line_delta = 1.0;
+  float alpha = 1.0;
+  vec4 line_color = vec4(vec3(0.5), alpha);
+
+  float mix_value =
+      smoothstep(line_width - line_delta, line_width + line_delta, d);
+
+  // float mix_value = 1.0;
+  // Compute viewer shading.
+
+  float s = abs(normalize(vnor).z);
+  if (use_face_normal)
+    s = abs(normalize(nor).z);
+
+  float light = 0.2 + 1.0 * pow(s, 1000) + 0.75 * pow(s, 0.2);
+  // float light = 0.2 + 0.75 * pow(s, 0.2);
+
+  // Toon Shading
+  if (light <= 0.50) light = 0.20;
+  else if (light <= 0.60) light = 0.40;
+  else if (light <= 0.80) light = 0.60;
+  else if (light <= 0.90) light = 0.80;
+  else if (light <= 1.00) light = 1.00;
+
+  float weight = 1.0 - instance / float(time_samples);
+
+  alpha = weight;
+
+  vec4 light_color = vec4(vec3(light), alpha);
+
+  if (instance > 0)
+    light_color = light_color * colormap(weight);
+
+  // Mix both color values.
+
+  if (wireframe)
+    frag_color = mix(line_color, light_color, mix_value);
+  else
+    frag_color = light_color;
+
+  // gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * instance / time_samples;
+}
+)##"};
+
+  if (!vs) {
+    log::error(vs.info_log());
+    quit();
+    return;
+  }
+
+  if (!gs) {
+    log::error(gs.info_log());
+    quit();
+    return;
+  }
+
+  if (!fs) {
+    log::error(fs.info_log());
+    quit();
+    return;
+  }
+
+  surface_shader.attach(vs);
+  surface_shader.attach(gs);
+  surface_shader.attach(fs);
+  surface_shader.link();
+
+  if (!surface_shader.linked()) {
+    log::error(surface_shader.info_log());
+    quit();
+    return;
+  }
+}
+
+void viewer::create_motion_trails_shader() {
+  const auto vs = opengl::vertex_shader{"#version 460 core\n",  //
+                                        R"##(
+uniform mat4 projection;
+uniform mat4 view;
+
+uniform uint transforms_count;
+
+layout (location = 0) in vec3 p;
+layout (location = 1) in vec3 n;
+
+layout (std430, binding = 0) readonly buffer bone_weight_offsets {
+  uint offsets[];
+};
+struct bone_weight {
+  uint bid;
+  float weight;
+};
+layout (std430, binding = 1) readonly buffer bone_weight_data {
+  bone_weight weights[];
+};
+layout (std430, binding = 2) readonly buffer bone_transforms {
+  mat4 transforms[];
+};
+
+out vec3 position;
+out vec3 normal;
+
+flat out uint id;
+
+void main() {
+  uint offset = (gl_InstanceID + 1) * transforms_count;
+  mat4 model = mat4(0.0);
+  for (uint i = offsets[gl_VertexID]; i < offsets[gl_VertexID + 1]; ++i)
+    model += weights[i].weight * transforms[offset + weights[i].bid];
+
+  gl_Position = projection * view * model * vec4(p, 1.0);
+
+  position = vec3(view * model * vec4(p, 1.0));
+  normal = vec3(transpose(inverse(view * model)) * vec4(n, 0.0));
+
+  id = gl_InstanceID + 1;
+}
+)##"};
+
+  const auto fs = opengl::fragment_shader{R"##(
+#version 460 core
+
+uniform int width;
+uniform int height;
+uniform int time_samples;
+uniform int trails;
+
+in vec3 position;
+in vec3 normal;
+flat in uint id;
+
+layout (location = 0) out vec4 frag_color;
+
+// vec4 colormap(float x) {
+//     float v = cos(133.0 * x) * 28.0 + 230.0 * x + 27.0;
+//     if (v > 255.0) {
+//         v = 510.0 - v;
+//     }
+//     v = v / 255.0;
+//     return vec4(v, v, v, 1.0);
+// }
+
+float colormap_red(float x) {
+    return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
+}
+
+float colormap_green(float x) {
+    return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
+}
+
+vec4 colormap(float x) {
+    float r = clamp(colormap_red(x), 0.0, 1.0);
+    float g = clamp(colormap_green(x), 0.0, 1.0);
+    float b = 1.0;
+    return vec4(r, g, b, 1.0);
+}
+
+void main() {
+  if (bool(id % ((time_samples - 1) / trails))) discard;
+
+  float s = abs(normalize(normal).z);
+  float light = 0.2 + 1.0 * pow(s, 1000) + 0.75 * pow(s, 0.2);
+  // Toon Shading
+  if (light <= 0.50) light = 0.20;
+  else if (light <= 0.60) light = 0.40;
+  else if (light <= 0.80) light = 0.60;
+  else if (light <= 0.90) light = 0.80;
+  else if (light <= 1.00) light = 1.00;
+
+  float weight = 1.0 - id / float(time_samples);
+  vec4 light_color = vec4(vec3(light), 1.0);
+  light_color = light_color * colormap(weight);
+  frag_color = light_color;
+  gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * id / time_samples;
+}
+)##"};
+
+  if (!vs) {
+    log::error(vs.info_log());
+    quit();
+    return;
+  }
+
+  if (!fs) {
+    log::error(fs.info_log());
+    quit();
+    return;
+  }
+
+  motion_trails_shader.attach(vs);
+  motion_trails_shader.attach(fs);
+  motion_trails_shader.link();
+
+  if (!motion_trails_shader.linked()) {
+    log::error(motion_trails_shader.info_log());
+    quit();
+    return;
+  }
+}
+
+void viewer::create_motion_lines_shader() {
+  const auto vs = opengl::vertex_shader{"#version 460 core\n",  //
+                                        R"##(
+uniform mat4 projection;
+uniform mat4 view;
+uniform mat4 viewport;
+uniform uint transforms_count;
+uniform int time_samples;
+uniform float line_width;
+
+struct vertex {
+  float position[3];
+  float normal[3];
+};
+layout (std430, binding = 5) readonly buffer ssbo_vertices {
+  vertex vertices[];
+};
+
+layout (std430, binding = 6) readonly buffer ssbo_vids {
+  uint vids[];
+};
+
+layout (std430, binding = 0) readonly buffer bone_weight_offsets {
+  uint offsets[];
+};
+struct bone_weight {
+  uint bid;
+  float weight;
+};
+layout (std430, binding = 1) readonly buffer bone_weight_data {
+  bone_weight weights[];
+};
+layout (std430, binding = 2) readonly buffer bone_transforms {
+  mat4 transforms[];
+};
+
+out float time;
+out float v;
+
+vec4 vertex_position(uint vid) {
+  return vec4(vertices[vid].position[0], vertices[vid].position[1], vertices[vid].position[2], 1.0);
+}
+
+mat4 animated_model_transform(uint tid, uint vid) {
+  uint offset = tid * transforms_count;
+  mat4 model = mat4(0.0);
+  for (uint i = offsets[vid]; i < offsets[vid + 1]; ++i)
+    model += weights[i].weight * transforms[offset + weights[i].bid];
+  return model;
+}
+
+vec4 screenspace_position(vec4 x) {
+  const vec4 pos = projection * view * x;
+  const vec4 tmp = pos / pos.w;
+  return viewport * tmp;
+}
+
+void main() {
+  const uint vid = vids[gl_InstanceID];
+  // const uint vid = gl_InstanceID;
+
+  const uint tid = gl_VertexID >> 1;
+  time = float(tid);
+  const float sgn = bool(gl_VertexID & 1) ? -1.0 : 1.0;
+
+  const vec4 pos = vertex_position(vid);
+
+  const vec2 p = vec2(screenspace_position(animated_model_transform(tid - 1, vid) * pos));
+  const vec4 _x = screenspace_position(animated_model_transform(tid + 0, vid) * pos);
+  const vec2 x = vec2(_x);
+  const vec2 q = vec2(screenspace_position(animated_model_transform(tid + 1, vid) * pos));
+
+  const vec2 xp = normalize(p - x);
+  const vec2 xq = normalize(q - x);
+
+  // Tangent
+  vec2 t = normalize(xq - xp);
+  if (tid == 0)
+    t = normalize(xq);
+  else if (tid == time_samples - 1)
+    t = -normalize(xp);
+  // Normal
+  const vec2 n = vec2(-t.y, t.x);
+
+  const vec4 r = vec4(x + 0.5 * line_width * sgn * n, _x.z, 1.0);
+
+  gl_Position = vec4(inverse(viewport) * r);
+  v = sgn;
+}
+)##"};
+
+  const auto fs = opengl::fragment_shader{R"##(
+#version 460 core
+
+uniform int time_samples;
+
+in float time;
+in float v;
+
+layout (location = 0) out vec4 frag_color;
+
+float colormap_red(float x) {
+    return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
+}
+
+float colormap_green(float x) {
+    return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
+}
+
+vec4 colormap(float x) {
+    float r = clamp(colormap_red(x), 0.0, 1.0);
+    float g = clamp(colormap_green(x), 0.0, 1.0);
+    float b = 1.0;
+    return vec4(r, g, b, 1.0);
+}
+
+// vec4 colormap(float x) {
+//     float v = cos(133.0 * x) * 28.0 + 230.0 * x + 27.0;
+//     if (v > 255.0) {
+//         v = 510.0 - v;
+//     }
+//     v = v / 255.0;
+//     return vec4(v, v, v, 1.0);
+// }
+
+void main() {
+  const float t = time / float(time_samples);
+  const float weight = 100.0 * t * t * exp(-10.0 * t);
+  if ((v > weight * sin(100.0 * t) + weight) || (v < weight * sin(100.0 * t) - weight)) discard;
+  frag_color = colormap(weight) * vec4(vec3(1.0), weight);
+  // gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * time / time_samples;
+}
+)##"};
+
+  if (!vs) {
+    log::error(vs.info_log());
+    quit();
+    return;
+  }
+
+  if (!fs) {
+    log::error(fs.info_log());
+    quit();
+    return;
+  }
+
+  motion_lines_shader.attach(vs);
+  motion_lines_shader.attach(fs);
+  motion_lines_shader.link();
+
+  if (!motion_lines_shader.linked()) {
+    log::error(motion_lines_shader.info_log());
     quit();
     return;
   }
