@@ -72,6 +72,7 @@ class viewer : public opengl_window {
   sampled_animation samples{};
   opengl::vertex_array samples_va{};
   opengl::vertex_buffer samples_data{};
+  opengl::shader_storage_buffer samples_vertices{};
 
   // oit
   GLuint atomic_counter_buffer;
@@ -91,6 +92,8 @@ class viewer : public opengl_window {
   opengl::shader_program motion_trails_shader{};
   opengl::shader_program motion_lines_shader{};
   opengl::shader_storage_buffer ssbo_vids{};
+
+  opengl::shader_program motion_line_samples_shader{};
 
  public:
   viewer(int width = 500, int height = 500);
@@ -143,6 +146,7 @@ class viewer : public opengl_window {
   void create_surface_shader();
   void create_motion_trails_shader();
   void create_motion_lines_shader();
+  void create_motion_line_samples_shader();
 };
 
 }  // namespace demo
