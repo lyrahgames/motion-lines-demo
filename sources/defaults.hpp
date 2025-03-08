@@ -11,6 +11,7 @@
 #include <glbinding/glbinding.h>
 //
 #define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 #include <glm/glm.hpp>
 //
 #include <glm/ext.hpp>

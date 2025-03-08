@@ -92,6 +92,11 @@ class viewer : public opengl_window {
   opengl::shader_program motion_lines_shader{};
   opengl::shader_storage_buffer ssbo_vids{};
 
+  motion_line_bundle bundle{};
+  opengl::shader_storage_buffer bundle_vertices{};
+  opengl::shader_storage_buffer bundle_segments{};
+  opengl::shader_program bundle_shader{};
+
  public:
   viewer(int width = 500, int height = 500);
   void run();
@@ -143,6 +148,9 @@ class viewer : public opengl_window {
   void create_surface_shader();
   void create_motion_trails_shader();
   void create_motion_lines_shader();
+
+  void compute_motion_line_bundle();
+  void create_bundle_shader();
 };
 
 }  // namespace demo

@@ -1,4 +1,5 @@
 #pragma once
+#include "camera.hpp"
 #include "scene.hpp"
 
 namespace demo {
@@ -119,9 +120,8 @@ inline auto animation_transforms(const skinned_mesh& mesh,
   return result;
 }
 
-auto weighted_transform(const skinned_mesh& mesh,
-                        auto&& transforms,
-                        uint32 vid) -> glm::mat4 {
+auto weighted_transform(const skinned_mesh& mesh, auto&& transforms, uint32 vid)
+    -> glm::mat4 {
   glm::mat4 result(0.0f);
   for (auto i = mesh.weights.offsets[vid];  //
        i < mesh.weights.offsets[vid + 1]; ++i) {
@@ -188,6 +188,110 @@ inline auto sampled_animation_from(const skinned_mesh& mesh,
         std::max(result.max_length,
                  result.samples[(vid + 1) * result.sample_count - 1].length);
 
+  return result;
+}
+
+// template <typename type>
+// struct list_bundle {
+//   using value_type = type;
+//   using size_type = uint32;
+//   std::vector<value_type> entries{};
+//   std::vector<size_type> offsets{0};
+// };
+
+struct motion_line_bundle {
+  struct vertex {
+    vec4 position;
+    vec2 pixels;
+    vec2 out;
+    float32 time;
+    float32 arc;
+    float32 parc;
+    float32 depth;
+  };
+  std::vector<vertex> vertices{};
+  std::vector<uint32> offsets{0};
+};
+
+inline auto uniform_motion_line_bundle(const skinned_mesh& mesh,
+                                       const auto& seeds,
+                                       size_t aid,
+                                       size_t fps = 60) -> motion_line_bundle {
+  motion_line_bundle bundle{};
+
+  std::vector<glm::mat4> transforms;
+  transforms.resize(mesh.bones.size());
+
+  const auto duration =
+      mesh.animations[aid].duration / mesh.animations[aid].ticks;
+
+  for (auto vid : seeds) {
+    const auto sample_count = static_cast<size_t>(std::floor(fps * duration));
+    const auto dt = duration / (sample_count - 1);
+
+    for (size_t i = 0; i < sample_count; ++i) {
+      const auto t = i * dt;
+
+      load_animation_transforms(mesh, aid, t, transforms);
+      const auto m = weighted_transform(mesh, transforms, vid);
+
+      motion_line_bundle::vertex v{};
+      v.position = m * vec4(mesh.vertices[vid].position, 1.0f);
+      v.time = t;
+      bundle.vertices.push_back(v);
+    }
+
+    bundle.offsets.push_back(bundle.vertices.size());
+  }
+
+  return bundle;
+}
+
+inline auto update_strokes(motion_line_bundle& bundle,
+                           const struct camera& camera) {
+  const auto m = camera.projection_matrix() * camera.view_matrix();
+  const auto p = camera.viewport_matrix();
+  for (auto& v : bundle.vertices) {
+    auto x = m * v.position;
+    x /= x.w;
+    x = p * x;
+    v.pixels = vec2(x);
+    v.depth = x.z;
+  }
+
+  for (size_t i = 0; i < bundle.offsets.size() - 1; ++i) {
+    const auto first = bundle.offsets[i];
+    const auto last = bundle.offsets[i + 1];
+
+    {
+      const auto x = bundle.vertices[first].pixels;
+      const auto q = bundle.vertices[first + 1].pixels;
+      const auto t = normalize(q - x);
+      bundle.vertices[first].out = vec2(-t.y, t.x);
+    }
+    for (auto k = first + 1; k < last - 1; ++k) {
+      const auto p = bundle.vertices[k - 1].pixels;
+      const auto x = bundle.vertices[k].pixels;
+      const auto q = bundle.vertices[k + 1].pixels;
+      const auto xp = normalize(p - x);
+      const auto xq = normalize(q - x);
+      const auto t = normalize(xq - xp);
+      bundle.vertices[k].out = vec2(-t.y, t.x);
+    }
+    {
+      const auto p = bundle.vertices[last - 2].pixels;
+      const auto x = bundle.vertices[last - 1].pixels;
+      const auto t = -normalize(p - x);
+      bundle.vertices[last - 1].out = vec2(-t.y, t.x);
+    }
+  }
+}
+
+inline auto segments(const motion_line_bundle& bundle) {
+  std::vector<uint32> result{};
+  for (size_t i = 0; i < bundle.offsets.size() - 1; ++i)
+    for (auto j = bundle.offsets[i]; j < bundle.offsets[i + 1] - 1; ++j)
+      result.push_back(j);
   return result;
 }
 

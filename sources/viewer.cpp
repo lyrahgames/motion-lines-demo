@@ -47,6 +47,8 @@ viewer::viewer(int width, int height) : opengl_window{width, height} {
   create_surface_shader();
   create_motion_trails_shader();
   create_motion_lines_shader();
+
+  create_bundle_shader();
 }
 
 void viewer::create_shader() {
@@ -885,26 +887,39 @@ void viewer::render() {
   //
   glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
 
-  motion_trails_shader.try_set("projection", camera.projection_matrix());
-  motion_trails_shader.try_set("view", camera.view_matrix());
-  motion_trails_shader.try_set("viewport", camera.viewport_matrix());
-  motion_trails_shader.try_set("transforms_count", mesh.bones.size());
-  motion_trails_shader.try_set("time_samples", int(time_samples));
-  motion_trails_shader.set("trails", int(10));
-  motion_trails_shader.use();
+  // motion_trails_shader.try_set("projection", camera.projection_matrix());
+  // motion_trails_shader.try_set("view", camera.view_matrix());
+  // motion_trails_shader.try_set("viewport", camera.viewport_matrix());
+  // motion_trails_shader.try_set("transforms_count", mesh.bones.size());
+  // motion_trails_shader.try_set("time_samples", int(time_samples));
+  // motion_trails_shader.set("trails", int(10));
+  // motion_trails_shader.use();
   //
   // glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
   // 0, time_samples);
 
-  motion_lines_shader.try_set("projection", camera.projection_matrix());
-  motion_lines_shader.try_set("view", camera.view_matrix());
-  motion_lines_shader.try_set("viewport", camera.viewport_matrix());
-  motion_lines_shader.try_set("transforms_count", mesh.bones.size());
-  motion_lines_shader.try_set("time_samples", int(time_samples));
-  motion_lines_shader.try_set("line_width", 30.0f);
-  motion_lines_shader.use();
+  // motion_lines_shader.try_set("projection", camera.projection_matrix());
+  // motion_lines_shader.try_set("view", camera.view_matrix());
+  // motion_lines_shader.try_set("viewport", camera.viewport_matrix());
+  // motion_lines_shader.try_set("transforms_count", mesh.bones.size());
+  // motion_lines_shader.try_set("time_samples", int(time_samples));
+  // motion_lines_shader.try_set("line_width", 30.0f);
+  // motion_lines_shader.use();
+  // //
+  // glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 2 * time_samples, vids.size());
+
+  update_strokes(bundle, camera);
+  // bundle_vertices.write(bundle.vertices);
+  bundle_vertices.allocate_and_initialize(bundle.vertices);
   //
-  glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 2 * time_samples, vids.size());
+  bundle_shader.try_set("projection", camera.projection_matrix());
+  bundle_shader.try_set("view", camera.view_matrix());
+  bundle_shader.try_set("viewport", camera.viewport_matrix());
+  bundle_shader.try_set("line_width", 30.0f);
+  bundle_shader.try_set("now", time);
+  bundle_shader.use();
+  //
+  glDrawArrays(GL_TRIANGLES, 0, 6 * segments(bundle).size());
 }
 
 void viewer::on_resize(int width, int height) {
@@ -1179,6 +1194,7 @@ void viewer::select_animation(int id) {
   time = 0.0f;
   // compute_motion_lines();
   // compute_animation_samples();
+  compute_motion_line_bundle();
 }
 
 void viewer::load_vids_from_file(const std::filesystem::path& path) {
@@ -1220,6 +1236,8 @@ void viewer::select_maxmin_vids(size_t count) {
 
 void viewer::select_maxmin_vids() {
   select_maxmin_vids(mesh.vertices.size() * 0.001f);
+
+  compute_motion_line_bundle();
 }
 
 void viewer::compute_animation_samples() {
@@ -2228,6 +2246,131 @@ void main() {
 
   if (!motion_lines_shader.linked()) {
     log::error(motion_lines_shader.info_log());
+    quit();
+    return;
+  }
+}
+
+void viewer::compute_motion_line_bundle() {
+  bundle = uniform_motion_line_bundle(mesh, vids, animation);
+
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, bundle_vertices.id());
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, bundle_vertices.id());
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, bundle_segments.id());
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, bundle_segments.id());
+  bundle_vertices.allocate_and_initialize(bundle.vertices);
+  bundle_segments.allocate_and_initialize(segments(bundle));
+}
+
+void viewer::create_bundle_shader() {
+  const auto vs = opengl::vertex_shader{"#version 460 core\n",  //
+                                        R"##(
+uniform mat4 projection;
+uniform mat4 view;
+uniform mat4 viewport;
+uniform float line_width;
+
+struct vertex {
+  vec4 position;
+  vec2 pixels;
+  vec2 n;
+  float time;
+  float arc;
+  float parc;
+  float depth;
+};
+
+layout (std430, binding = 10) readonly buffer bundle_vertices {
+  vertex vertices[];
+};
+
+layout (std430, binding = 11) readonly buffer bundle_segments {
+  uint segments[];
+};
+
+const uint elements[] = {
+  0, 1, 2,
+  1, 3, 2,
+};
+
+out float time;
+out float v;
+
+void main() {
+  uint sid = gl_VertexID / 6;
+  uint eid = gl_VertexID % 6;
+  uint element = elements[eid];
+  uint vid = segments[sid] + (element % 2);
+
+  float s = float(element >> 1) - 0.5;
+  v = 2.0 * s;
+
+  vec2 x = vertices[vid].pixels;
+  vec2 n = vertices[vid].n;
+  float z = vertices[vid].depth;
+  time = vertices[vid].time;
+
+  vec4 r = vec4(x + s * line_width * n, z, 1.0);
+
+  gl_Position = vec4(inverse(viewport) * r);
+}
+)##"};
+
+  const auto fs = opengl::fragment_shader{R"##(
+#version 460 core
+
+uniform float now;
+
+in float time;
+in float v;
+
+layout (location = 0) out vec4 frag_color;
+
+float colormap_red(float x) {
+    return (1.0 + 1.0 / 63.0) * x - 1.0 / 63.0;
+}
+
+float colormap_green(float x) {
+    return -(1.0 + 1.0 / 63.0) * x + (1.0 + 1.0 / 63.0);
+}
+
+vec4 colormap(float x) {
+    float r = clamp(colormap_red(x), 0.0, 1.0);
+    float g = clamp(colormap_green(x), 0.0, 1.0);
+    float b = 1.0;
+    return vec4(r, g, b, 1.0);
+}
+
+void main() {
+  if (time > now) discard;
+  // frag_color = vec4(vec3(0.0), 1.0);
+
+  const float t = now - time;
+  const float weight = 100.0 * t * t * exp(-10.0 * t);
+  if ((v > weight * sin(100.0 * t) + weight) || (v < weight * sin(100.0 * t) - weight)) discard;
+  frag_color = colormap(weight) * vec4(vec3(1.0), weight);
+  // gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * t / time_samples;
+}
+)##"};
+
+  if (!vs) {
+    log::error(vs.info_log());
+    quit();
+    return;
+  }
+
+  if (!fs) {
+    log::error(fs.info_log());
+    quit();
+    return;
+  }
+
+  bundle_shader.attach(vs);
+  bundle_shader.attach(fs);
+  bundle_shader.link();
+
+  if (!bundle_shader.linked()) {
+    log::error(bundle_shader.info_log());
     quit();
     return;
   }
