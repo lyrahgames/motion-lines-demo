@@ -18,6 +18,8 @@ import libs += libsfml-graphics%lib{sfml-graphics}
 #
 import libs += assimp%lib{assimp}
 
+import libs += stb_image%lib{stb_image}
+
 exe{motion-lines-demo}: {hxx ixx txx cxx}{**} $libs
 {
   test = true

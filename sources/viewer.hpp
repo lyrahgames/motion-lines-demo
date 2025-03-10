@@ -98,6 +98,9 @@ class viewer : public opengl_window {
   opengl::shader_storage_buffer bundle_strokes{};
   opengl::shader_program bundle_shader{};
 
+  GLuint background_texture;
+  opengl::shader_program background_shader{};
+
  public:
   viewer(int width = 500, int height = 500);
   void run();
@@ -106,6 +109,8 @@ class viewer : public opengl_window {
   void load_vids_from_file(const std::filesystem::path& path);
   void select_maxmin_vids(size_t count);
   void select_maxmin_vids();
+
+  void load_background_from_file(const std::filesystem::path& path);
 
  private:
   void process(const sf::Event event);
@@ -152,6 +157,8 @@ class viewer : public opengl_window {
 
   void compute_motion_line_bundle();
   void create_bundle_shader();
+
+  void create_background_shader();
 };
 
 }  // namespace demo

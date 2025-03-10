@@ -7,7 +7,7 @@ int main(int argc, char* argv[]) {
     viewer.load_scene_from_file(argv[1]);
     viewer.select_maxmin_vids();
   }
-  if (argc > 2) viewer.load_vids_from_file(argv[2]);
+  if (argc > 2) viewer.load_background_from_file(argv[2]);
 
   viewer.run();
 }

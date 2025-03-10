@@ -30,3 +30,5 @@ depends: glm
 # Loader
 #
 depends: assimp ; System Dependency
+
+depends: stb_image

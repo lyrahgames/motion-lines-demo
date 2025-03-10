@@ -1,6 +1,9 @@
 #include "viewer.hpp"
 //
 #include "log.hpp"
+//
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 namespace demo {
 
@@ -49,6 +52,8 @@ viewer::viewer(int width, int height) : opengl_window{width, height} {
   create_motion_lines_shader();
 
   create_bundle_shader();
+
+  create_background_shader();
 }
 
 void viewer::create_shader() {
@@ -749,6 +754,12 @@ void viewer::update_view() {
 void viewer::render() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+  // Background
+  //
+  // glDepthFunc(GL_NEVER);
+  background_shader.use();
+  glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
   // oit_clear();
 
   if (not mesh.animations.empty()) {
@@ -758,7 +769,8 @@ void viewer::render() {
 
     if (playing) {
       time = std::fmod(
-          time + std::chrono::duration<float64>(current - start).count(),
+          time +
+              0.25f * std::chrono::duration<float64>(current - start).count(),
           duration);
       device.transforms.allocate_and_initialize(
           animation_transforms(mesh, animation, time));
@@ -1235,7 +1247,7 @@ void viewer::select_maxmin_vids(size_t count) {
 }
 
 void viewer::select_maxmin_vids() {
-  select_maxmin_vids(100);
+  select_maxmin_vids(40);
 
   compute_motion_line_bundle();
 }
@@ -2252,7 +2264,7 @@ void main() {
 }
 
 void viewer::compute_motion_line_bundle() {
-  bundle = uniform_motion_line_bundle(mesh, vids, animation);
+  bundle = uniform_motion_line_bundle(mesh, vids, animation, 100);
 
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, bundle_vertices.id());
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, bundle_vertices.id());
@@ -2356,6 +2368,15 @@ vec4 colormap(float x) {
     return vec4(r, g, b, 1.0);
 }
 
+// vec4 colormap(float x) {
+//     float v = cos(133.0 * x) * 28.0 + 230.0 * x + 27.0;
+//     if (v > 255.0) {
+//         v = 510.0 - v;
+//     }
+//     v = v / 255.0;
+//     return vec4(v, v, v, 1.0);
+// }
+
 void main() {
   if (time > now) discard;
   // frag_color = vec4(vec3(0.0), 1.0);
@@ -2364,7 +2385,8 @@ void main() {
   const float l = arc / 500.0;
   const float weight = 20.0 * l * l * exp(-10.0 * t);
   if ((v > weight * sin(100.0 * l) + weight) || (v < weight * sin(100.0 * l) - weight)) discard;
-  frag_color = colormap(weight) * vec4(vec3(1.0), weight);
+  frag_color = vec4(vec3(1.0), 0.5 + 0.5 * weight);
+  // frag_color = mix(colormap(weight) * vec4(vec3(1.0), 1.0), vec4(vec3(1.0), weight), weight);
   // gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * t / time_samples;
 }
 )##"};
@@ -2387,6 +2409,92 @@ void main() {
 
   if (!bundle_shader.linked()) {
     log::error(bundle_shader.info_log());
+    quit();
+    return;
+  }
+}
+
+void viewer::load_background_from_file(const std::filesystem::path& path) {
+  int width, height, nrChannels;
+  unsigned char* data =
+      stbi_load(path.c_str(), &width, &height, &nrChannels, 0);
+  if (!data) {
+    log::error("Failed to load background texture!");
+    return;
+  }
+  glBindTexture(GL_TEXTURE_2D, background_texture);
+  if (nrChannels == 3)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB,
+                 GL_UNSIGNED_BYTE, data);
+  else if (nrChannels == 4)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, data);
+
+  glGenerateMipmap(GL_TEXTURE_2D);
+
+  stbi_image_free(data);
+
+  log::info("Successfully loaded background texture!");
+}
+
+void viewer::create_background_shader() {
+  glGenTextures(1, &background_texture);
+  glBindTexture(GL_TEXTURE_2D, background_texture);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                  GL_LINEAR_MIPMAP_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+  const auto vs = opengl::vertex_shader{"#version 460 core\n",  //
+                                        R"##(
+const vec2 points[4] = {
+  vec2(-1.0, -1.0),
+  vec2(1.0, -1.0),
+  vec2(1.0, 1.0),
+  vec2(-1.0, 1.0)
+};
+
+out vec2 uv;
+
+void main() {
+  uv = 0.5 * (points[gl_VertexID] + 1.0);
+  gl_Position = vec4(points[gl_VertexID], 0.99999, 1.0);
+}
+)##"};
+
+  const auto fs = opengl::fragment_shader{R"##(
+#version 460 core
+
+uniform sampler2D background;
+
+in vec2 uv;
+
+layout (location = 0) out vec4 frag_color;
+
+void main() {
+  frag_color = texture(background, uv);
+}
+)##"};
+
+  if (!vs) {
+    log::error(vs.info_log());
+    quit();
+    return;
+  }
+
+  if (!fs) {
+    log::error(fs.info_log());
+    quit();
+    return;
+  }
+
+  background_shader.attach(vs);
+  background_shader.attach(fs);
+  background_shader.link();
+
+  if (!background_shader.linked()) {
+    log::error(background_shader.info_log());
     quit();
     return;
   }
