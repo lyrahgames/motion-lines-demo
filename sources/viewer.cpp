@@ -894,9 +894,8 @@ void viewer::render() {
   // motion_trails_shader.try_set("time_samples", int(time_samples));
   // motion_trails_shader.set("trails", int(10));
   // motion_trails_shader.use();
-  //
   // glDrawElementsInstanced(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT,
-  // 0, time_samples);
+  //                         0, time_samples);
 
   // motion_lines_shader.try_set("projection", camera.projection_matrix());
   // motion_lines_shader.try_set("view", camera.view_matrix());
@@ -908,9 +907,10 @@ void viewer::render() {
   // //
   // glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 2 * time_samples, vids.size());
 
-  update_strokes(bundle, camera);
+  update_strokes(bundle, time, camera);
   // bundle_vertices.write(bundle.vertices);
   bundle_vertices.allocate_and_initialize(bundle.vertices);
+  bundle_strokes.allocate_and_initialize(bundle.arcs);
   //
   bundle_shader.try_set("projection", camera.projection_matrix());
   bundle_shader.try_set("view", camera.view_matrix());
@@ -1235,7 +1235,7 @@ void viewer::select_maxmin_vids(size_t count) {
 }
 
 void viewer::select_maxmin_vids() {
-  select_maxmin_vids(mesh.vertices.size() * 0.001f);
+  select_maxmin_vids(100);
 
   compute_motion_line_bundle();
 }
@@ -2258,8 +2258,11 @@ void viewer::compute_motion_line_bundle() {
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, bundle_vertices.id());
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, bundle_segments.id());
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 11, bundle_segments.id());
+  glBindBuffer(GL_SHADER_STORAGE_BUFFER, bundle_strokes.id());
+  glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 12, bundle_strokes.id());
   bundle_vertices.allocate_and_initialize(bundle.vertices);
   bundle_segments.allocate_and_initialize(segments(bundle));
+  bundle_strokes.allocate_and_initialize(bundle.arcs);
 }
 
 void viewer::create_bundle_shader() {
@@ -2284,8 +2287,17 @@ layout (std430, binding = 10) readonly buffer bundle_vertices {
   vertex vertices[];
 };
 
+struct segment_entry {
+  uint vertex;
+  uint stroke;
+};
+
 layout (std430, binding = 11) readonly buffer bundle_segments {
-  uint segments[];
+  segment_entry segments[];
+};
+
+layout (std430, binding = 12) readonly buffer bundle_strokes {
+  float arcs[];
 };
 
 const uint elements[] = {
@@ -2295,12 +2307,13 @@ const uint elements[] = {
 
 out float time;
 out float v;
+out float arc;
 
 void main() {
   uint sid = gl_VertexID / 6;
   uint eid = gl_VertexID % 6;
   uint element = elements[eid];
-  uint vid = segments[sid] + (element % 2);
+  uint vid = segments[sid].vertex + (element % 2);
 
   float s = float(element >> 1) - 0.5;
   v = 2.0 * s;
@@ -2309,6 +2322,7 @@ void main() {
   vec2 n = vertices[vid].n;
   float z = vertices[vid].depth;
   time = vertices[vid].time;
+  arc = arcs[segments[sid].stroke] - vertices[vid].arc;
 
   vec4 r = vec4(x + s * line_width * n, z, 1.0);
 
@@ -2322,6 +2336,7 @@ void main() {
 uniform float now;
 
 in float time;
+in float arc;
 in float v;
 
 layout (location = 0) out vec4 frag_color;
@@ -2346,8 +2361,9 @@ void main() {
   // frag_color = vec4(vec3(0.0), 1.0);
 
   const float t = now - time;
-  const float weight = 100.0 * t * t * exp(-10.0 * t);
-  if ((v > weight * sin(100.0 * t) + weight) || (v < weight * sin(100.0 * t) - weight)) discard;
+  const float l = arc / 500.0;
+  const float weight = 20.0 * l * l * exp(-10.0 * t);
+  if ((v > weight * sin(100.0 * l) + weight) || (v < weight * sin(100.0 * l) - weight)) discard;
   frag_color = colormap(weight) * vec4(vec3(1.0), weight);
   // gl_FragDepth = gl_FragCoord.z + (1.0 - gl_FragCoord.z) * t / time_samples;
 }

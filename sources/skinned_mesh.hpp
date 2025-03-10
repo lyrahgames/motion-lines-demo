@@ -211,6 +211,7 @@ struct motion_line_bundle {
   };
   std::vector<vertex> vertices{};
   std::vector<uint32> offsets{0};
+  std::vector<float32> arcs{};
 };
 
 inline auto uniform_motion_line_bundle(const skinned_mesh& mesh,
@@ -229,6 +230,8 @@ inline auto uniform_motion_line_bundle(const skinned_mesh& mesh,
     const auto sample_count = static_cast<size_t>(std::floor(fps * duration));
     const auto dt = duration / (sample_count - 1);
 
+    const auto first = bundle.offsets.back();
+
     for (size_t i = 0; i < sample_count; ++i) {
       const auto t = i * dt;
 
@@ -242,12 +245,23 @@ inline auto uniform_motion_line_bundle(const skinned_mesh& mesh,
     }
 
     bundle.offsets.push_back(bundle.vertices.size());
+    const auto last = bundle.offsets.back();
+
+    bundle.vertices[first].arc = 0.0f;
+    for (auto k = first; k < last - 1; ++k)
+      bundle.vertices[k + 1].arc =
+          bundle.vertices[k].arc +
+          glm::distance(bundle.vertices[k].position,
+                        bundle.vertices[k + 1].position);
   }
+
+  bundle.arcs.resize(bundle.offsets.size() - 1);
 
   return bundle;
 }
 
 inline auto update_strokes(motion_line_bundle& bundle,
+                           float32 time,
                            const struct camera& camera) {
   const auto m = camera.projection_matrix() * camera.view_matrix();
   const auto p = camera.viewport_matrix();
@@ -285,13 +299,41 @@ inline auto update_strokes(motion_line_bundle& bundle,
       bundle.vertices[last - 1].out = vec2(-t.y, t.x);
     }
   }
+
+  for (size_t sid = 0; sid < bundle.offsets.size() - 1; ++sid) {
+    auto vid = bundle.offsets[sid];
+    if (time < bundle.vertices[vid].time) {
+      bundle.arcs[sid] = bundle.vertices[vid].arc;
+      continue;
+    }
+    ++vid;
+    for (; vid < bundle.offsets[sid + 1]; ++vid) {
+      if (time < bundle.vertices[vid].time) {
+        const auto t1 = bundle.vertices[vid - 1].time;
+        const auto t2 = bundle.vertices[vid].time;
+        const auto arc1 = bundle.vertices[vid - 1].arc;
+        const auto arc2 = bundle.vertices[vid].arc;
+        const auto t = time;
+        bundle.arcs[sid] = ((t2 - t) * arc1 + (t - t1) * arc2) / (t2 - t1);
+        break;
+      }
+    }
+    if (time >= bundle.vertices[vid - 1].time)
+      bundle.arcs[sid] = bundle.vertices[vid - 1].arc;
+  }
 }
 
-inline auto segments(const motion_line_bundle& bundle) {
-  std::vector<uint32> result{};
+struct line_map_entry {
+  uint32 vertex;
+  uint32 stroke;
+};
+
+inline auto segments(const motion_line_bundle& bundle)
+    -> std::vector<line_map_entry> {
+  std::vector<line_map_entry> result{};
   for (size_t i = 0; i < bundle.offsets.size() - 1; ++i)
     for (auto j = bundle.offsets[i]; j < bundle.offsets[i + 1] - 1; ++j)
-      result.push_back(j);
+      result.emplace_back(j, i);
   return result;
 }
 

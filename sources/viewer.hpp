@@ -95,6 +95,7 @@ class viewer : public opengl_window {
   motion_line_bundle bundle{};
   opengl::shader_storage_buffer bundle_vertices{};
   opengl::shader_storage_buffer bundle_segments{};
+  opengl::shader_storage_buffer bundle_strokes{};
   opengl::shader_program bundle_shader{};
 
  public:
