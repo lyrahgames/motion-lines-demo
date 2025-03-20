@@ -214,6 +214,12 @@ struct motion_line_bundle {
   std::vector<float32> arcs{};
 };
 
+inline auto aabb_from(const motion_line_bundle& bundle) noexcept -> aabb3 {
+  aabb3 result{};
+  for (const auto& v : bundle.vertices) result = aabb{result, vec3(v.position)};
+  return result;
+}
+
 inline auto uniform_motion_line_bundle(const skinned_mesh& mesh,
                                        const auto& seeds,
                                        size_t aid,

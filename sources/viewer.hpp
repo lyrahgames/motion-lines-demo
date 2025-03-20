@@ -151,6 +151,7 @@ class viewer : public opengl_window {
   void set_y_as_up();
 
   void fit_view_to_surface();
+  void fit_view_to_bundle();
 
   void pretty_print_node(const scene::node& node,
                          const std::string& prefix,

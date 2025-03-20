@@ -1140,6 +1140,18 @@ void viewer::fit_view_to_surface() {
   view_should_update = true;
 }
 
+void viewer::fit_view_to_bundle() {
+  const auto box = aabb_from(bundle);
+  origin = box.origin();
+  bounding_radius = box.radius();
+
+  // cout << "bounding radius = " << bounding_radius << endl;
+
+  radius = bounding_radius / tan(0.5f * camera.vfov());
+  camera.set_near_and_far(1e-5f * radius, 100 * radius);
+  view_should_update = true;
+}
+
 void viewer::compute_motion_lines() {
   if (mesh.animations.empty()) return;
 
@@ -2276,7 +2288,8 @@ void main() {
 }
 
 void viewer::compute_motion_line_bundle() {
-  bundle = uniform_motion_line_bundle(mesh, vids, animation, 100);
+  bundle = uniform_motion_line_bundle(mesh, vids, animation, 1000);
+  fit_view_to_bundle();
 
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, bundle_vertices.id());
   glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 10, bundle_vertices.id());
