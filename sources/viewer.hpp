@@ -104,6 +104,11 @@ class viewer : public opengl_window {
   opengl::shader_storage_buffer bundle_strokes{};
   opengl::shader_program bundle_shader{};
 
+  std::filesystem::path bundle_vs_path{};
+  std::filesystem::path bundle_fs_path{};
+  std::filesystem::file_time_type bundle_vs_timestamp{};
+  std::filesystem::file_time_type bundle_fs_timestamp{};
+
   GLuint background_texture;
   opengl::shader_program background_shader{};
 
@@ -120,6 +125,9 @@ class viewer : public opengl_window {
   void select_maxmin_vids();
 
   void load_background_from_file(const std::filesystem::path& path);
+
+  void load_bundle_shader(const std::filesystem::path& vpath,
+                          const std::filesystem::path& fpath);
 
  private:
   void init_lua();
@@ -169,6 +177,7 @@ class viewer : public opengl_window {
 
   void compute_motion_line_bundle();
   void create_bundle_shader();
+  void process_bundle_shader_reload();
 
   void create_background_shader();
 };

@@ -703,6 +703,7 @@ void viewer::process(const sf::Event event) {
 
 void viewer::update() {
   process_lua_reload();
+  process_bundle_shader_reload();
 
   // Get new mouse position and compute movement in space.
   const auto new_mouse_pos = sf::Mouse::getPosition(window);
@@ -931,9 +932,9 @@ void viewer::render() {
   bundle_shader.try_set("projection", camera.projection_matrix());
   bundle_shader.try_set("view", camera.view_matrix());
   bundle_shader.try_set("viewport", camera.viewport_matrix());
-  bundle_shader.try_set("line_width", 10.0f);
+  // bundle_shader.try_set("line_width", 10.0f);
   bundle_shader.try_set("now", time);
-  bundle_shader.try_set("delta", 1.0f);
+  // bundle_shader.try_set("delta", 1.0f);
   bundle_shader.try_set("char_length", bounding_radius);
   bundle_shader.use();
   //
@@ -2293,7 +2294,7 @@ void viewer::create_bundle_shader() {
 uniform mat4 projection;
 uniform mat4 view;
 uniform mat4 viewport;
-uniform float line_width;
+uniform float line_width = 1.0;
 
 struct vertex {
   vec4 position;
@@ -2667,6 +2668,12 @@ void viewer::init_lua() {
 
       fn<"create_seeds", "Compute a given number of motion line seeds.">(
           [this](int n) { select_maxmin_vids(n); }),
+
+      fn<"load_bundle_shader",
+         "Load vertex and fragment shader files for motion line shader.">(
+          [this](const string& vpath, const string& fpath) {
+            load_bundle_shader(vpath, fpath);
+          }),
   };
 
   for_each(functions, [this](auto& f) {
@@ -2685,7 +2692,7 @@ void viewer::init_lua() {
 }
 
 void viewer::eval_lua_file(const std::filesystem::path& path) {
-  lua_reload_path = path;
+  lua_reload_path = absolute(path);
   lua_reload_timestamp = last_write_time(path);
   const auto cwd = std::filesystem::current_path();
   current_path(path.parent_path());
@@ -2696,6 +2703,48 @@ void viewer::eval_lua_file(const std::filesystem::path& path) {
 void viewer::process_lua_reload() {
   if (lua_reload_timestamp == last_write_time(lua_reload_path)) return;
   eval_lua_file(lua_reload_path);
+}
+
+void viewer::load_bundle_shader(const std::filesystem::path& vpath,
+                                const std::filesystem::path& fpath) {
+  bundle_vs_timestamp = last_write_time(vpath);
+  bundle_fs_timestamp = last_write_time(fpath);
+
+  const auto vs = opengl::vertex_shader{xstd::string_from_file(vpath)};
+  const auto fs = opengl::fragment_shader{xstd::string_from_file(fpath)};
+
+  if (!vs) {
+    log::error(vs.info_log());
+    return;
+  }
+
+  if (!fs) {
+    log::error(fs.info_log());
+    return;
+  }
+
+  opengl::shader_program tmp{};
+
+  tmp.attach(vs);
+  tmp.attach(fs);
+  tmp.link();
+
+  if (!tmp.linked()) {
+    log::error(tmp.info_log());
+    return;
+  }
+
+  bundle_vs_path = absolute(vpath);
+  bundle_fs_path = absolute(fpath);
+
+  bundle_shader = move(tmp);
+}
+
+void viewer::process_bundle_shader_reload() {
+  if ((bundle_vs_timestamp == last_write_time(bundle_vs_path)) &&
+      (bundle_fs_timestamp == last_write_time(bundle_fs_path)))
+    return;
+  load_bundle_shader(bundle_vs_path, bundle_fs_path);
 }
 
 }  // namespace demo
