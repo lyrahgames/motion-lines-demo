@@ -8,6 +8,8 @@
 #include "opengl/vertex_array.hpp"
 //
 #include <SFML/Graphics.hpp>
+//
+#include <sol/sol.hpp>
 
 namespace demo {
 
@@ -19,6 +21,8 @@ struct opengl_window {
 };
 
 class viewer : public opengl_window {
+  sol::state lua{};
+
   // Stores updated mouse position in window coordinates.
   sf::Vector2i mouse_pos{};
 
@@ -103,6 +107,9 @@ class viewer : public opengl_window {
 
  public:
   viewer(int width = 500, int height = 500);
+
+  void eval_lua_file(const std::filesystem::path& path);
+
   void run();
 
   void load_scene_from_file(const std::filesystem::path& path);
@@ -113,6 +120,8 @@ class viewer : public opengl_window {
   void load_background_from_file(const std::filesystem::path& path);
 
  private:
+  void init_lua();
+
   void process(const sf::Event event);
   void render();
   void update();

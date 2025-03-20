@@ -20,6 +20,8 @@ import libs += assimp%lib{assimp}
 
 import libs += stb_image%lib{stb_image}
 
+import libs += sol2%lib{sol2}
+
 exe{motion-lines-demo}: {hxx ixx txx cxx}{**} $libs
 {
   test = true
