@@ -702,6 +702,8 @@ void viewer::process(const sf::Event event) {
 }
 
 void viewer::update() {
+  process_lua_reload();
+
   // Get new mouse position and compute movement in space.
   const auto new_mouse_pos = sf::Mouse::getPosition(window);
   const auto mouse_move = new_mouse_pos - mouse_pos;
@@ -2683,10 +2685,17 @@ void viewer::init_lua() {
 }
 
 void viewer::eval_lua_file(const std::filesystem::path& path) {
+  lua_reload_path = path;
+  lua_reload_timestamp = last_write_time(path);
   const auto cwd = std::filesystem::current_path();
-  std::filesystem::current_path(path.parent_path());
+  current_path(path.parent_path());
   lua.safe_script_file(path);
-  std::filesystem::current_path(cwd);
+  current_path(cwd);
+}
+
+void viewer::process_lua_reload() {
+  if (lua_reload_timestamp == last_write_time(lua_reload_path)) return;
+  eval_lua_file(lua_reload_path);
 }
 
 }  // namespace demo

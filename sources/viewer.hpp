@@ -22,6 +22,8 @@ struct opengl_window {
 
 class viewer : public opengl_window {
   sol::state lua{};
+  std::filesystem::path lua_reload_path;
+  std::filesystem::file_time_type lua_reload_timestamp;
 
   // Stores updated mouse position in window coordinates.
   sf::Vector2i mouse_pos{};
@@ -121,6 +123,7 @@ class viewer : public opengl_window {
 
  private:
   void init_lua();
+  void process_lua_reload();
 
   void process(const sf::Event event);
   void render();
