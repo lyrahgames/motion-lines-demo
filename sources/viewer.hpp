@@ -1,5 +1,6 @@
 #pragma once
 #include "camera.hpp"
+#include "file_watcher.hpp"
 #include "scene.hpp"
 #include "skinned_mesh.hpp"
 //
@@ -21,6 +22,7 @@ struct opengl_window {
 };
 
 class viewer : public opengl_window {
+  file_watcher watcher{};
   sol::state lua{};
   std::filesystem::path lua_reload_path;
   std::filesystem::file_time_type lua_reload_timestamp;
@@ -126,12 +128,14 @@ class viewer : public opengl_window {
 
   void load_background_from_file(const std::filesystem::path& path);
 
+  void load_surface_shader(const std::filesystem::path& vpath,
+                           const std::filesystem::path& gpath,
+                           const std::filesystem::path& fpath);
   void load_bundle_shader(const std::filesystem::path& vpath,
                           const std::filesystem::path& fpath);
 
  private:
   void init_lua();
-  void process_lua_reload();
 
   void process(const sf::Event event);
   void render();
@@ -177,7 +181,6 @@ class viewer : public opengl_window {
 
   void compute_motion_line_bundle();
   void create_bundle_shader();
-  void process_bundle_shader_reload();
 
   void create_background_shader();
 };

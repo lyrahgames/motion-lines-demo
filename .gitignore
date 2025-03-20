@@ -8,6 +8,8 @@
 !*.cpp
 !*.in
 
+!*.glsl
+
 !.build2/**
 !buildfile
 !bootstrap.build

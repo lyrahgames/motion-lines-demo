@@ -14,7 +14,7 @@ opengl_window::opengl_window(int width, int height)
              sf::ContextSettings{
                  /*.depthBits = */ 24,
                  /*.stencilBits = */ 0,
-                 /*.antialiasingLevel = */ 2,
+                 /*.antialiasingLevel = */ 4,
                  /*.majorVersion = */ 4,
                  /*.minorVersion = */ 6,
                  /*.attributeFlags = */
@@ -29,7 +29,7 @@ viewer::viewer(int width, int height) : opengl_window{width, height} {
   init_lua();
 
   glEnable(GL_DEPTH_TEST);
-  // glEnable(GL_MULTISAMPLE);
+  glEnable(GL_MULTISAMPLE);
   // glEnable(GL_POINT_SMOOTH);
   // glEnable(GL_POINT_SPRITE);
   glEnable(GL_BLEND);
@@ -702,8 +702,9 @@ void viewer::process(const sf::Event event) {
 }
 
 void viewer::update() {
-  process_lua_reload();
-  process_bundle_shader_reload();
+  watcher.process();
+  // process_lua_reload();
+  // process_bundle_shader_reload();
 
   // Get new mouse position and compute movement in space.
   const auto new_mouse_pos = sf::Mouse::getPosition(window);
@@ -2669,6 +2670,12 @@ void viewer::init_lua() {
       fn<"create_seeds", "Compute a given number of motion line seeds.">(
           [this](int n) { select_maxmin_vids(n); }),
 
+      fn<"load_surface_shader", "Load all shader files for surface rendering.">(
+          [this](const string& vpath, const string& gpath,
+                 const string& fpath) {
+            load_surface_shader(vpath, gpath, fpath);
+          }),
+
       fn<"load_bundle_shader",
          "Load vertex and fragment shader files for motion line shader.">(
           [this](const string& vpath, const string& fpath) {
@@ -2692,24 +2699,59 @@ void viewer::init_lua() {
 }
 
 void viewer::eval_lua_file(const std::filesystem::path& path) {
-  lua_reload_path = absolute(path);
-  lua_reload_timestamp = last_write_time(path);
   const auto cwd = std::filesystem::current_path();
   current_path(path.parent_path());
   lua.safe_script_file(path);
   current_path(cwd);
+
+  watcher.watch([this](auto& path) { eval_lua_file(path); }, path);
 }
 
-void viewer::process_lua_reload() {
-  if (lua_reload_timestamp == last_write_time(lua_reload_path)) return;
-  eval_lua_file(lua_reload_path);
+void viewer::load_surface_shader(const std::filesystem::path& vpath,
+                                 const std::filesystem::path& gpath,
+                                 const std::filesystem::path& fpath) {
+  const auto vs = opengl::vertex_shader{xstd::string_from_file(vpath)};
+  const auto gs = opengl::geometry_shader{xstd::string_from_file(gpath)};
+  const auto fs = opengl::fragment_shader{xstd::string_from_file(fpath)};
+
+  if (!vs) {
+    log::error(vs.info_log());
+    return;
+  }
+
+  if (!gs) {
+    log::error(gs.info_log());
+    return;
+  }
+
+  if (!fs) {
+    log::error(fs.info_log());
+    return;
+  }
+
+  opengl::shader_program tmp{};
+
+  tmp.attach(vs);
+  tmp.attach(gs);
+  tmp.attach(fs);
+  tmp.link();
+
+  if (!tmp.linked()) {
+    log::error(tmp.info_log());
+    return;
+  }
+
+  surface_shader = move(tmp);
+
+  watcher.watch(
+      [this](auto& vpath, auto& gpath, auto& fpath) {
+        load_surface_shader(vpath, gpath, fpath);
+      },
+      vpath, gpath, fpath);
 }
 
 void viewer::load_bundle_shader(const std::filesystem::path& vpath,
                                 const std::filesystem::path& fpath) {
-  bundle_vs_timestamp = last_write_time(vpath);
-  bundle_fs_timestamp = last_write_time(fpath);
-
   const auto vs = opengl::vertex_shader{xstd::string_from_file(vpath)};
   const auto fs = opengl::fragment_shader{xstd::string_from_file(fpath)};
 
@@ -2734,17 +2776,11 @@ void viewer::load_bundle_shader(const std::filesystem::path& vpath,
     return;
   }
 
-  bundle_vs_path = absolute(vpath);
-  bundle_fs_path = absolute(fpath);
-
   bundle_shader = move(tmp);
-}
 
-void viewer::process_bundle_shader_reload() {
-  if ((bundle_vs_timestamp == last_write_time(bundle_vs_path)) &&
-      (bundle_fs_timestamp == last_write_time(bundle_fs_path)))
-    return;
-  load_bundle_shader(bundle_vs_path, bundle_fs_path);
+  watcher.watch(
+      [this](auto& vpath, auto& fpath) { load_bundle_shader(vpath, fpath); },
+      vpath, fpath);
 }
 
 }  // namespace demo
