@@ -939,7 +939,7 @@ void viewer::render() {
   bundle_shader.try_set("char_length", bounding_radius);
   bundle_shader.use();
   //
-  glDrawArrays(GL_TRIANGLES, 0, 6 * segments(bundle).size());
+  glDrawArrays(GL_TRIANGLES, 0, 18 * segments(bundle).size());
 }
 
 void viewer::on_resize(int width, int height) {
@@ -1263,12 +1263,53 @@ void viewer::select_maxmin_vids(size_t count) {
     vids.push_back(max_vid);
   }
 
-  ssbo_vids.allocate_and_initialize(vids);
+  ssbo_vids.allocate_and_initialize(
+      std::span{vids.data(), vids.data() + count});
   compute_motion_line_bundle();
 }
 
 void viewer::select_maxmin_vids() {
   select_maxmin_vids(50);
+}
+
+void viewer::maxmin_order_vids() {
+  vids.clear();
+  vids.reserve(mesh.vertices.size());
+  vids.push_back(0);
+
+  std::vector<float32> distances(mesh.vertices.size() * mesh.vertices.size());
+  for (size_t vid1 = 0; vid1 < mesh.vertices.size(); ++vid1)
+    for (size_t vid2 = 0; vid2 < mesh.vertices.size(); ++vid2)
+      distances[vid1 * mesh.vertices.size() + vid2] = glm::distance(
+          mesh.vertices[vid1].position, mesh.vertices[vid2].position);
+
+  for (size_t it = 1; it < mesh.vertices.size(); ++it) {
+    size_t max_vid = 0;
+    float32 max_distance = 0;
+    for (size_t vid1 = 0; vid1 < mesh.vertices.size(); ++vid1) {
+      float32 min_distance = infinity;
+      for (auto vid2 : vids)
+        min_distance = std::min(min_distance,
+                                distances[vid1 * mesh.vertices.size() + vid2]);
+      if (min_distance >= max_distance) {
+        max_vid = vid1;
+        max_distance = min_distance;
+      }
+    }
+    vids.push_back(max_vid);
+  }
+}
+
+void viewer::save_seeds(const std::filesystem::path& path) {
+  std::ofstream file{path};
+  for (auto vid : vids) file << vid << '\n';
+}
+
+void viewer::load_seeds(const std::filesystem::path& path) {
+  std::ifstream file{path};
+  vids.clear();
+  uint32 vid{};
+  while (file >> vid) vids.push_back(vid);
 }
 
 void viewer::compute_animation_samples() {
@@ -2288,7 +2329,7 @@ void main() {
 }
 
 void viewer::compute_motion_line_bundle() {
-  bundle = uniform_motion_line_bundle(mesh, vids, animation, 1000);
+  bundle = uniform_motion_line_bundle(mesh, vids, animation, 100);
   fit_view_to_bundle();
 
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, bundle_vertices.id());
@@ -2680,8 +2721,16 @@ void viewer::init_lua() {
       fn<"load_scene_from_file", "Load animated scene from given file path.">(
           [this](czstring path) { load_scene_from_file(path); }),
 
-      fn<"create_seeds", "Compute a given number of motion line seeds.">(
+      fn<"select_seeds", "Select a given number of motion line seeds.">(
           [this](int n) { select_maxmin_vids(n); }),
+
+      fn<"compute_maxmin_seed_order", "">([this] { maxmin_order_vids(); }),
+
+      fn<"load_seeds", "Load motion line seeds from file.">(
+          [this](const string& path) { load_seeds(path); }),
+
+      fn<"save_seeds", "Save motion line seeds to file.">(
+          [this](const string& path) { save_seeds(path); }),
 
       fn<"load_surface_shader", "Load all shader files for surface rendering.">(
           [this](const string& vpath, const string& gpath,

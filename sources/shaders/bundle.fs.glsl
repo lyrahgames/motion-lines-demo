@@ -10,6 +10,7 @@ in float v;
 in float varc;
 in float sarc;
 in float speed;
+flat in uint stroke;
 
 layout (location = 0) out vec4 frag_color;
 
@@ -103,6 +104,12 @@ vec4 colormap(float x) {
     return vec4(r, g, b, 1.0);
 }
 
+float random (vec2 st) {
+    return fract(sin(dot(st.xy,
+                         vec2(12.9898,78.233)))*
+        43758.5453123);
+}
+
 void main() {
   const float t = now - time;
   if ((t < 0.0) || (t > delta)) discard;
@@ -111,18 +118,22 @@ void main() {
   const float end_mask = 1.0 - smoothstep(0.95 * delta, delta, t);
   const float decay_mask = exp(-2.0 * t / delta);
   const float speed_value = speed * delta / char_length;
-  const float dash_bound = exp(-0.15 * speed_value * speed_value);
+  const float dash_bound = exp(-0.2 * speed_value * speed_value);
   const float speed_mask = 1.0 - dash_bound;
-  const float dash_u = mod(20.0 * varc / char_length, 2.0) - 1.0;
-  // const float dash_mask = smoothstep(0.95 * dash_bound, dash_bound, abs(dash_u));
-  const float dash_mask = smoothstep(0.20, 0.30, abs(mod(10.0 * varc / char_length, 2.0) - 1.0));
+  const float dash_u = mod(15.0 * varc / char_length, 2.0) - 1.0;
+  // const float dash_mask = smoothstep(0.0 * dash_bound, dash_bound, abs(dash_u));
+  // const float dash_mask = smoothstep(0.0, 1.0, abs(mod(10.0 * varc / char_length, 2.0) - 1.0));
 
   float weight = begin_mask * end_mask * decay_mask * speed_mask;
 
-  const float width_mask = (1.0 - smoothstep(0.95 * weight, weight, abs(v)));
-  weight *= width_mask;
+  // const float width_mask = (1.0 - smoothstep(0.95 * weight, weight, abs(v)));
+  // weight *= width_mask;
 
   // frag_color = vec4(vec3(0.5), weight);
-  frag_color = vec4(vec3(colormap(0.15 + t / delta / 0.85)), weight);
+  if (abs(v) >= 1.0)
+    frag_color = vec4(vec3(1.0), weight);
+  else
+    frag_color = vec4(vec3(colormap(t / delta / 0.7 + 0.3 * random(vec2(float(stroke)/7.0, float(stroke)/13.0)))), weight) ;
+
   // frag_color = mix(vec4(1.0), colormap(0.1 + t / delta / 0.9), weight);
 }

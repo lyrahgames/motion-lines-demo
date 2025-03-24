@@ -126,6 +126,10 @@ class viewer : public opengl_window {
   void select_maxmin_vids(size_t count);
   void select_maxmin_vids();
 
+  void maxmin_order_vids();
+  void save_seeds(const std::filesystem::path& path);
+  void load_seeds(const std::filesystem::path& path);
+
   void load_background_from_file(const std::filesystem::path& path);
 
   void load_surface_shader(const std::filesystem::path& vpath,

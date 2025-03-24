@@ -56,7 +56,7 @@ void main() {
 
   float light = pow(s, 0.5);
   if (light <= 0.55)
-    light = 0.2;
+    light = 0.4;
   else if (light <= 0.8)
     light = 0.8;
   else
