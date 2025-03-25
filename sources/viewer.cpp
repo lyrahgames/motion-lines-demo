@@ -4,6 +4,9 @@
 //
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+//
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 namespace demo {
 
@@ -679,10 +682,6 @@ void viewer::process(const sf::Event event) {
           select_animation(++animation);
           break;
 
-        case sf::Keyboard::S:
-          sparse = !sparse;
-          break;
-
         case sf::Keyboard::W:
           wireframe_rendering = !wireframe_rendering;
           surface_shader.set("wireframe", wireframe_rendering);
@@ -691,6 +690,16 @@ void viewer::process(const sf::Event event) {
         case sf::Keyboard::F:
           flat_rendering = !flat_rendering;
           surface_shader.set("use_face_normal", flat_rendering);
+          break;
+
+        case sf::Keyboard::C:
+          save_perspective("camera.txt");
+          break;
+        case sf::Keyboard::S:
+          screenshot("screenshot.png");
+          break;
+        case sf::Keyboard::T:
+          log::info(std::format("time = {}", time));
           break;
       }
       break;
@@ -2743,6 +2752,20 @@ void viewer::init_lua() {
           [this](const string& vpath, const string& fpath) {
             load_bundle_shader(vpath, fpath);
           }),
+
+      fn<"load_perspective", "Load camera data from file.">(
+          [this](const string& path) { load_perspective(path); }),
+      fn<"save_perspective", "Store camera data to file.">(
+          [this](const string& path) { save_perspective(path); }),
+
+      fn<"set_size", "Set screen resolution of viewer.">(
+          [this](int width, int height) { set_size(width, height); }),
+
+      fn<"screenshot", "Save a screenshot of the viewer as PNG image.">(
+          [this](const string& path) { screenshot(path); }),
+
+      fn<"set_time", "Set the time of the animation.">(
+          [this](float t) { set_time(t); }),
   };
 
   for_each(functions, [this](auto& f) {
@@ -2843,6 +2866,78 @@ void viewer::load_bundle_shader(const std::filesystem::path& vpath,
   watcher.watch(
       [this](auto& vpath, auto& fpath) { load_bundle_shader(vpath, fpath); },
       vpath, fpath);
+}
+
+void viewer::save_perspective(const std::filesystem::path& path) {
+  std::ofstream file{path};
+  if (!file) {
+    log::error(format("Failed to save perspective to file.\nfile = '{}'",
+                      path.string()));
+    return;
+  }
+  file << format("{} {} {}\n", origin.x, origin.y, origin.z)
+       << format("{} {} {}\n", up.x, up.y, up.z)
+       << format("{} {} {}\n", right.x, right.y, right.z)
+       << format("{} {} {}\n", front.x, front.y, front.z)
+       << format("{} {} {}\n", radius, altitude, azimuth);
+
+  log::info(format("Successfully saved perspective to file.\nfile = '{}'",
+                   path.string()));
+}
+
+void viewer::load_perspective(const std::filesystem::path& path) {
+  std::ifstream file{path};
+  if (!file) {
+    log::error(format("Failed to load perspective from file.\nfile = '{}'",
+                      path.string()));
+    return;
+  }
+  file                                     //
+      >> origin.x >> origin.y >> origin.z  //
+      >> up.x >> up.y >> up.z              //
+      >> right.x >> right.y >> right.z     //
+      >> front.x >> front.y >> front.z     //
+      >> radius >> altitude >> azimuth;
+
+  log::info(format("Successfully loaded perspective from file.\nfile = '{}'",
+                   path.string()));
+
+  view_should_update = true;
+}
+
+void viewer::set_size(int width, int height) {
+  window.setSize({width, height});
+}
+
+void viewer::screenshot(const std::filesystem::path& path) {
+  sf::Event event;
+  while (window.pollEvent(event)) process(event);
+  update();
+  render();
+  window.display();
+
+  int width = camera.screen_width();
+  int height = camera.screen_height();
+  GLsizei nrChannels = 3;
+  GLsizei stride = nrChannels * width;
+  // stride += (stride % 4) ? (4 - stride % 4) : 0;
+  GLsizei bufferSize = stride * height;
+  std::vector<char> buffer(bufferSize);
+  // glPixelStorei(GL_PACK_ALIGNMENT, 4);
+  glPixelStorei(GL_PACK_ALIGNMENT, 1);
+  glReadBuffer(GL_FRONT);
+  glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
+
+  stbi_flip_vertically_on_write(true);
+  stbi_write_png(path.c_str(), width, height, nrChannels, buffer.data(),
+                 stride);
+
+  log::info(format("Successfully stored framebuffer as image.\nfile = '{}'.",
+                   path.string()));
+}
+
+void viewer::set_time(float t) {
+  time = t;
 }
 
 }  // namespace demo

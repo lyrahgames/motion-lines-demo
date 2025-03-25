@@ -138,6 +138,14 @@ class viewer : public opengl_window {
   void load_bundle_shader(const std::filesystem::path& vpath,
                           const std::filesystem::path& fpath);
 
+  void save_perspective(const std::filesystem::path& path);
+  void load_perspective(const std::filesystem::path& path);
+
+  void set_size(int width, int height);
+
+  void screenshot(const std::filesystem::path& path);
+  void set_time(float time);
+
  private:
   void init_lua();
 

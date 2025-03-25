@@ -1,7 +1,7 @@
 #version 460 core
 
 uniform float now = 0.0;
-uniform float delta = 0.8;
+uniform float delta = 1.0;
 uniform float char_length = 1.0;
 
 in float time;

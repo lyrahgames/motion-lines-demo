@@ -3,7 +3,7 @@
 uniform mat4 projection;
 uniform mat4 view;
 uniform mat4 viewport;
-uniform float line_width = 20;
+uniform float line_width = 10.0;
 uniform float now;
 uniform float delta;
 uniform float char_length;

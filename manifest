@@ -32,5 +32,6 @@ depends: glm
 depends: assimp ; System Dependency
 
 depends: stb_image
+depends: stb_image_write
 
 depends: sol2

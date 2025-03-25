@@ -19,6 +19,7 @@ import libs += libsfml-graphics%lib{sfml-graphics}
 import libs += assimp%lib{assimp}
 
 import libs += stb_image%lib{stb_image}
+import libs += stb_image_write%lib{stb_image_write}
 
 import libs += sol2%lib{sol2}
 
