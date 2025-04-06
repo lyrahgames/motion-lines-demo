@@ -24,7 +24,7 @@ opengl_window::opengl_window(int width, int height)
                  sf::ContextSettings::Core /*| sf::ContextSettings::Debug*/,
                  /*.sRgbCapable = */ false}) {
   glbinding::initialize(sf::Context::getFunction);
-  window.setVerticalSyncEnabled(true);
+  window.setVerticalSyncEnabled(false);
   window.setKeyRepeatEnabled(false);
 }
 
@@ -701,6 +701,10 @@ void viewer::process(const sf::Event event) {
         case sf::Keyboard::T:
           log::info(std::format("time = {}", time));
           break;
+
+        case sf::Keyboard::B:
+          bundle_rendering = !bundle_rendering;
+          break;
       }
       break;
 
@@ -767,6 +771,25 @@ void viewer::update_view() {
 }
 
 void viewer::render() {
+  if (frame_count < frame_samples)
+    ++frame_count;
+  else {
+    frame_count = 0;
+    const auto new_frame_timestamp = std::chrono::high_resolution_clock::now();
+    const auto time =
+        std::chrono::duration<float>(new_frame_timestamp - frame_timestamp)
+            .count();
+    frame_timestamp = new_frame_timestamp;
+
+    const auto frame_time = time / frame_samples;
+    const auto fps = 1 / frame_time;
+
+    log::info(std::format("frame time = {} s\tFPS = {}\tduration = {}",
+                          frame_time, fps,
+                          mesh.animations[animation].duration /
+                              mesh.animations[animation].ticks));
+  }
+
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
   // Background
@@ -842,25 +865,25 @@ void viewer::render() {
   //
   // glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
 
-  const size_t time_samples = 100;
-  {
-    const float32 dt = 0.01f;
-    std::vector<glm::mat4> transforms(time_samples * mesh.bones.size());
-    load_animation_transforms(
-        mesh, animation, time,
-        std::span{transforms.data(), transforms.data() + mesh.bones.size()});
-    for (size_t i = 1; i < time_samples; ++i) {
-      const auto t =
-          std::clamp(std::floor((time - (i - 1) * dt) / dt) * dt, 0.0f, time);
-      // std::clamp(time - i * dt, 0.0f, time);
-      const auto first = i * mesh.bones.size();
-      const auto last = (i + 1) * mesh.bones.size();
-      auto view =
-          std::span{transforms.data() + first, transforms.data() + last};
-      load_animation_transforms(mesh, animation, t, view);
-    }
-    device.transforms.allocate_and_initialize(transforms);
-  }
+  // const size_t time_samples = 100;
+  // {
+  //   const float32 dt = 0.01f;
+  //   std::vector<glm::mat4> transforms(time_samples * mesh.bones.size());
+  //   load_animation_transforms(
+  //       mesh, animation, time,
+  //       std::span{transforms.data(), transforms.data() + mesh.bones.size()});
+  //   for (size_t i = 1; i < time_samples; ++i) {
+  //     const auto t =
+  //         std::clamp(std::floor((time - (i - 1) * dt) / dt) * dt, 0.0f, time);
+  //     // std::clamp(time - i * dt, 0.0f, time);
+  //     const auto first = i * mesh.bones.size();
+  //     const auto last = (i + 1) * mesh.bones.size();
+  //     auto view =
+  //         std::span{transforms.data() + first, transforms.data() + last};
+  //     load_animation_transforms(mesh, animation, t, view);
+  //   }
+  //   device.transforms.allocate_and_initialize(transforms);
+  // }
 
   glDepthFunc(GL_LESS);
 
@@ -909,7 +932,8 @@ void viewer::render() {
   surface_shader.try_set("view", camera.view_matrix());
   surface_shader.try_set("viewport", camera.viewport_matrix());
   surface_shader.try_set("transforms_count", mesh.bones.size());
-  surface_shader.try_set("time_samples", int(time_samples));
+  // surface_shader.try_set("time_samples", int(time_samples));
+  surface_shader.try_set("time_samples", 1);
   surface_shader.use();
   //
   glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
@@ -934,21 +958,23 @@ void viewer::render() {
   // //
   // glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 2 * time_samples, vids.size());
 
-  update_strokes(bundle, time, camera);
-  // bundle_vertices.write(bundle.vertices);
-  bundle_vertices.allocate_and_initialize(bundle.vertices);
-  bundle_strokes.allocate_and_initialize(bundle.arcs);
-  //
-  bundle_shader.try_set("projection", camera.projection_matrix());
-  bundle_shader.try_set("view", camera.view_matrix());
-  bundle_shader.try_set("viewport", camera.viewport_matrix());
-  // bundle_shader.try_set("line_width", 10.0f);
-  bundle_shader.try_set("now", time);
-  // bundle_shader.try_set("delta", 1.0f);
-  bundle_shader.try_set("char_length", bounding_radius);
-  bundle_shader.use();
-  //
-  glDrawArrays(GL_TRIANGLES, 0, 18 * segments(bundle).size());
+  // update_strokes(bundle, time, camera);
+  // bundle_vertices.allocate_and_initialize(bundle.vertices);
+  // bundle_strokes.allocate_and_initialize(bundle.arcs);
+
+  if (bundle_rendering) {
+    //
+    bundle_shader.try_set("projection", camera.projection_matrix());
+    bundle_shader.try_set("view", camera.view_matrix());
+    bundle_shader.try_set("viewport", camera.viewport_matrix());
+    // bundle_shader.try_set("line_width", 10.0f);
+    bundle_shader.try_set("now", time);
+    // bundle_shader.try_set("delta", 1.0f);
+    bundle_shader.try_set("char_length", bounding_radius);
+    bundle_shader.use();
+    //
+    glDrawArrays(GL_TRIANGLES, 0, 18 * segments(bundle).size());
+  }
 }
 
 void viewer::on_resize(int width, int height) {
@@ -1279,6 +1305,14 @@ void viewer::select_maxmin_vids(size_t count) {
 
 void viewer::select_maxmin_vids() {
   select_maxmin_vids(50);
+}
+
+void viewer::select_all_vids() {
+  vids.resize(mesh.vertices.size());
+  std::ranges::iota(vids, 0);
+
+  ssbo_vids.allocate_and_initialize(vids);
+  compute_motion_line_bundle();
 }
 
 void viewer::maxmin_order_vids() {
@@ -2732,6 +2766,9 @@ void viewer::init_lua() {
 
       fn<"select_seeds", "Select a given number of motion line seeds.">(
           [this](int n) { select_maxmin_vids(n); }),
+
+      fn<"select_all_seeds", "Select all vertices as seed vertices.">(
+          [this] { select_all_vids(); }),
 
       fn<"compute_maxmin_seed_order", "">([this] { maxmin_order_vids(); }),
 

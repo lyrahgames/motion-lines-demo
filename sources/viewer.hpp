@@ -114,6 +114,13 @@ class viewer : public opengl_window {
   GLuint background_texture;
   opengl::shader_program background_shader{};
 
+  int frame_count = 0;
+  int frame_samples = 1000;
+  std::chrono::time_point<std::chrono::high_resolution_clock> frame_timestamp =
+      std::chrono::high_resolution_clock::now();
+
+  bool bundle_rendering = true;
+
  public:
   viewer(int width = 500, int height = 500);
 
@@ -125,6 +132,7 @@ class viewer : public opengl_window {
   void load_vids_from_file(const std::filesystem::path& path);
   void select_maxmin_vids(size_t count);
   void select_maxmin_vids();
+  void select_all_vids();
 
   void maxmin_order_vids();
   void save_seeds(const std::filesystem::path& path);
